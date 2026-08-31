@@ -1,0 +1,49 @@
+# ==============================================================================
+# DATA
+# Ignore all raw and processed data; keep folder structure via .gitkeep
+# ==============================================================================
+data/*
+!data/.gitkeep
+!data/README.md
+
+# ==============================================================================
+# CHECKPOINTS & MODEL WEIGHTS
+# Ignore heavy training binaries and model output artifacts
+# ==============================================================================
+checkpoints/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+
+# ==============================================================================
+# LOGS & EXPERIMENT TRACKING
+# Ignore raw logs and event files (keep tracked metrics if stored elsewhere)
+# ==============================================================================
+logs/
+*.log
+events.out.tfevents.*
+
+# ==============================================================================
+# PYTHON & VIRTUAL ENVIRONMENT
+# Bytecode and environment configuration
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+
+# ==============================================================================
+# OS & EDITOR NOISE
+# System metadata and IDE-specific settings
+# ==============================================================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
