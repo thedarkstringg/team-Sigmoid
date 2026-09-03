@@ -1,11 +1,5 @@
 """
 Training loop for TemporalRiskModel.
-
-Currently wired to DUMMY data (see `build_dummy_dataloaders`) so the full
-pipeline (train -> checkpoint -> resume -> log) can be proven correct before
-Ismayil's real windowed SCADA data lands. Swap `build_dummy_dataloaders()`
-for the real data loader once `src/data/` produces windowed tensors -
-everything else in this file should not need to change.
 """
 
 import argparse
@@ -37,27 +31,59 @@ def set_seed(seed: int):
 # Replace this function's body with the real loader. Keep the same
 # return signature (train_loader, val_loader) so nothing downstream breaks.
 # ---------------------------------------------------------------------------
-def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=86,
+def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=54,
                              n_train=256, n_val=64):
     x_train = torch.randn(n_train, seq_len, num_features)
     y_train = torch.randint(0, 2, (n_train, seq_len)).float()
+    mask_train = torch.ones(n_train, seq_len)  # dummy data has no gaps
     x_val = torch.randn(n_val, seq_len, num_features)
     y_val = torch.randint(0, 2, (n_val, seq_len)).float()
+    mask_val = torch.ones(n_val, seq_len)
 
-    train_loader = DataLoader(TensorDataset(x_train, y_train),
+    train_loader = DataLoader(TensorDataset(x_train, y_train, mask_train),
                                batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(TensorDataset(x_val, y_val),
+    val_loader = DataLoader(TensorDataset(x_val, y_val, mask_val),
                              batch_size=batch_size, shuffle=False)
     return train_loader, val_loader
 
 
-def compute_pos_weight(labels: torch.Tensor) -> torch.Tensor:
+def build_real_dataloaders(data_dir="data/processed/CARE_Farm_A/sequences",
+                            batch_size=32):
+    """
+    Loads exported .npy files per the agreed contract:
+      train_X.npy (N,144,54) float32, train_y.npy (N,144) uint8,
+      train_mask.npy (N,144) - 1=real observation, 0=gap-filled timestep.
+      Same for val_/test_.
+    """
+    def _load_split(split):
+        x = np.load(os.path.join(data_dir, f"{split}_X.npy"))
+        y = np.load(os.path.join(data_dir, f"{split}_y.npy"))
+        mask = np.load(os.path.join(data_dir, f"{split}_mask.npy"))
+        return (torch.from_numpy(x).float(),
+                torch.from_numpy(y).float(),
+                torch.from_numpy(mask).float())
+
+    x_train, y_train, mask_train = _load_split("train")
+    x_val, y_val, mask_val = _load_split("val")
+
+    train_loader = DataLoader(TensorDataset(x_train, y_train, mask_train),
+                               batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(TensorDataset(x_val, y_val, mask_val),
+                             batch_size=batch_size, shuffle=False)
+    return train_loader, val_loader
+
+
+def compute_pos_weight(labels: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
     """
     labels: any shape, binary {0,1}. Computes pos_weight for
     BCEWithLogitsLoss as (num_negative / num_positive).
     IMPORTANT: call this on the TRAINING split only - never val/test,
     to avoid leaking split statistics into the loss function.
+    If mask is given, gap-filled timesteps (mask==0) are excluded so the
+    ratio reflects only real observations.
     """
+    if mask is not None:
+        labels = labels[mask.bool()]
     num_pos = labels.sum()
     num_neg = labels.numel() - num_pos
     if num_pos == 0:
@@ -71,13 +97,20 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler,
     total_loss = 0.0
     optimizer.zero_grad()
 
-    for step, (x_batch, y_batch) in enumerate(loader):
-        x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+    for step, (x_batch, y_batch, mask_batch) in enumerate(loader):
+        x_batch = x_batch.to(device)
+        y_batch = y_batch.to(device)
+        mask_batch = mask_batch.to(device)
 
         # Mixed precision forward pass (brief §2.1: "cut memory")
         with torch.autocast(device_type=device.type, enabled=(device.type == "cuda")):
             logits = model(x_batch)
-            loss = criterion(logits, y_batch) / grad_accum_steps
+            # per-timestep loss, then mask out gap-filled timesteps before
+            # averaging - filled timesteps carry no real signal and
+            # shouldn't contribute to the gradient (per Ismayil's fill scheme)
+            loss_per_timestep = criterion(logits, y_batch)
+            loss = (loss_per_timestep * mask_batch).sum() / mask_batch.sum()
+            loss = loss / grad_accum_steps
 
         scaler.scale(loss).backward()
 
@@ -97,10 +130,13 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler,
 def validate(model, loader, criterion, device):
     model.eval()
     total_loss = 0.0
-    for x_batch, y_batch in loader:
-        x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+    for x_batch, y_batch, mask_batch in loader:
+        x_batch = x_batch.to(device)
+        y_batch = y_batch.to(device)
+        mask_batch = mask_batch.to(device)
         logits = model(x_batch)
-        loss = criterion(logits, y_batch)
+        loss_per_timestep = criterion(logits, y_batch)
+        loss = (loss_per_timestep * mask_batch).sum() / mask_batch.sum()
         total_loss += loss.item()
     return total_loss / len(loader)
 
@@ -136,6 +172,10 @@ def main():
     parser.add_argument("--log_path", type=str, default="logs/train_log.jsonl")
     parser.add_argument("--resume", action="store_true",
                          help="resume from checkpoint_dir/last.pt if present")
+    parser.add_argument("--use_real_data", action="store_true",
+                         help="load real Farm A sequences instead of dummy data")
+    parser.add_argument("--data_dir", type=str,
+                         default="data/processed/CARE_Farm_A/sequences")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -146,16 +186,20 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # --- Data ---
-    # TODO: replace with real data loader once src/data/ exists.
-    train_loader, val_loader = build_dummy_dataloaders(batch_size=args.batch_size)
+    if args.use_real_data:
+        train_loader, val_loader = build_real_dataloaders(args.data_dir, args.batch_size)
+    else:
+        train_loader, val_loader = build_dummy_dataloaders(batch_size=args.batch_size)
 
-    # --- pos_weight from TRAINING labels only ---
-    all_train_labels = torch.cat([y for _, y in train_loader])
-    pos_weight = compute_pos_weight(all_train_labels).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # --- pos_weight from TRAINING labels only, excluding gap-filled timesteps ---
+    all_train_labels = torch.cat([y for _, y, _ in train_loader])
+    all_train_masks = torch.cat([m for _, _, m in train_loader])
+    pos_weight = compute_pos_weight(all_train_labels, all_train_masks).to(device)
+    # reduction="none": we need per-timestep loss to apply the mask ourselves
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
 
     # --- Model / optimizer ---
-    model = TemporalRiskModel(input_size=86, hidden_size=args.hidden_size).to(device)
+    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler(device.type, enabled=(device.type == "cuda"))
 

@@ -11,7 +11,7 @@ class TemporalRiskModel(nn.Module):
             for actual probabilities during inference/eval)
     """
 
-    def __init__(self, input_size=86, hidden_size=64, num_layers=2):
+    def __init__(self, input_size=54, hidden_size=64, num_layers=2):
         super().__init__()
         self.gru = nn.GRU(
             input_size=input_size,
