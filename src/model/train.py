@@ -1,5 +1,11 @@
 """
 Training loop for TemporalRiskModel.
+
+Currently wired to DUMMY data (see `build_dummy_dataloaders`) so the full
+pipeline (train -> checkpoint -> resume -> log) can be proven correct before
+Ismayil's real windowed SCADA data lands. Swap `build_dummy_dataloaders()`
+for the real data loader once `src/data/` produces windowed tensors -
+everything else in this file should not need to change.
 """
 
 import argparse
@@ -50,7 +56,7 @@ def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=54,
 def build_real_dataloaders(data_dir="data/processed/CARE_Farm_A/sequences",
                             batch_size=32):
     """
-    Loads exported .npy files per the agreed contract:
+    Loads Ismayil's exported .npy files per the agreed contract:
       train_X.npy (N,144,54) float32, train_y.npy (N,144) uint8,
       train_mask.npy (N,144) - 1=real observation, 0=gap-filled timestep.
       Same for val_/test_.
@@ -166,6 +172,8 @@ def main():
     parser.add_argument("--grad_accum_steps", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden_size", type=int, default=64)
+    parser.add_argument("--dropout", type=float, default=0.0,
+                         help="dropout between GRU layers and before final projection")
     parser.add_argument("--patience", type=int, default=5,
                          help="early stopping patience, in epochs")
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
@@ -199,7 +207,8 @@ def main():
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
 
     # --- Model / optimizer ---
-    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size).to(device)
+    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size,
+                               dropout=args.dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler(device.type, enabled=(device.type == "cuda"))
 

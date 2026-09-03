@@ -54,12 +54,15 @@ def main():
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best.pt")
     parser.add_argument("--data_dir", type=str, default="data/processed/CARE_Farm_A/sequences")
     parser.add_argument("--hidden_size", type=int, default=64)
+    parser.add_argument("--dropout", type=float, default=0.0,
+                         help="must match the dropout used when this checkpoint was trained")
     parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size).to(device)
+    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size,
+                               dropout=args.dropout).to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     print(f"Loaded checkpoint from epoch {checkpoint['epoch']}, "
