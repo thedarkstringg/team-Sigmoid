@@ -86,7 +86,8 @@ def prepare(df: pd.DataFrame, model: str | None = None,
 # ---------------------------------------------------------------------------
 
 def lead_time(df: pd.DataFrame, threshold: float,
-              min_consecutive: int = 1) -> pd.DataFrame:
+              min_consecutive: int = 1,
+              search_window_hours: float | None = None) -> pd.DataFrame:
     """
     Hours between the first alarm and the fault, one row per fault event.
 
@@ -98,9 +99,21 @@ def lead_time(df: pd.DataFrame, threshold: float,
     min_consecutive > 1 suppresses single-window spikes that would otherwise
     report an implausibly long lead time off one noisy prediction.
 
-    detected == False means the model never crossed the threshold before the
-    fault; lead_time_hours is NaN for those rows and must be reported as a
-    miss rather than dropped.
+    search_window_hours caps how early an alarm may be and still count. This
+    matters: an isolated high-confidence burst a week before a fault, with
+    nothing during the labelled window, is not an early detection, but an
+    uncapped search reports it as the best lead time in the set. Farm A test
+    event 45 does exactly this. Pass None for the uncapped view and a finite
+    value (e.g. 72.0) for the operationally meaningful one.
+
+    detected == False means the model never crossed the threshold inside the
+    search window; lead_time_hours is NaN for those rows and must be reported
+    as a miss rather than dropped.
+
+    alarmed_in_horizon is the stricter check: did the model alarm at any point
+    inside the labelled 48 h horizon? An event can be 'detected' with a long
+    lead time and still be False here, which is the signature of a spurious
+    early spike rather than a genuine early warning.
     """
     if min_consecutive < 1:
         raise ValueError("min_consecutive must be >= 1")
@@ -110,10 +123,20 @@ def lead_time(df: pd.DataFrame, threshold: float,
 
     for (asset_id, event_id), event in faults.groupby(["asset_id", "event_id"]):
         event = event.sort_values("hours_to_fault", ascending=False)
-        above = (event["probability"].to_numpy() > threshold).astype(int)
+
+        if search_window_hours is not None:
+            event = event[event["hours_to_fault"] <= search_window_hours]
+            if event.empty:
+                continue
+
+        probs = event["probability"].to_numpy()
         hours = event["hours_to_fault"].to_numpy()
+        above = (probs > threshold).astype(int)
 
         alarm_idx = _first_run(above, min_consecutive)
+
+        in_horizon = event["hours_to_fault"] <= LABEL_HORIZON_HOURS
+        horizon_probs = event.loc[in_horizon, "probability"].to_numpy()
 
         rows.append({
             "asset_id": asset_id,
@@ -125,7 +148,11 @@ def lead_time(df: pd.DataFrame, threshold: float,
                 bool(hours[alarm_idx] <= LABEL_HORIZON_HOURS)
                 if alarm_idx is not None else False
             ),
-            "max_probability": float(event["probability"].max()),
+            "alarmed_in_horizon": bool(
+                _first_run((horizon_probs > threshold).astype(int), min_consecutive) is not None
+            ) if horizon_probs.size else False,
+            "max_probability": float(probs.max()),
+            "max_probability_in_horizon": float(horizon_probs.max()) if horizon_probs.size else np.nan,
         })
 
     return pd.DataFrame(rows).sort_values(["asset_id", "event_id"]).reset_index(drop=True)
@@ -158,6 +185,125 @@ def lead_time_summary(per_event: pd.DataFrame) -> dict:
         "max_lead_time_hours": float(detected["lead_time_hours"].max()) if len(detected) else np.nan,
         "n_beyond_label_horizon": int((~detected["within_label_horizon"]).sum()) if len(detected) else 0,
     }
+
+
+def false_alarm_rate(df: pd.DataFrame, threshold: float,
+                     min_consecutive: int = 1,
+                     hours_per_window: float = 1.0) -> dict:
+    """
+    Alarm behaviour on events that contain no fault at all.
+
+    Lead time on its own rewards a model that alarms constantly, so it must be
+    read next to this. Normal events are those with hours_to_fault NaN.
+
+    Two views are reported:
+
+      window rate   - fraction of normal windows above threshold. Comparable to
+                      1 - specificity.
+      episodes      - runs of consecutive alarm windows collapsed to one. This
+                      is the maintenance-relevant count, because a crew is
+                      dispatched once per sustained alarm, not once per
+                      10-minute timestep.
+
+    hours_per_window converts episode counts into a per-1000-hour rate. The
+    Farm A export uses a 1 h stride, so the default of 1.0 is correct there;
+    pass 1/6 for per-timestep GRU predictions at 10-minute resolution.
+    """
+    normal = df[df["hours_to_fault"].isna()]
+
+    if normal.empty:
+        return {
+            "n_normal_events": 0,
+            "n_normal_windows": 0,
+            "n_alarm_windows": 0,
+            "window_alarm_rate": np.nan,
+            "n_alarm_episodes": 0,
+            "episodes_per_1000h": np.nan,
+            "n_events_with_alarm": 0,
+            "event_alarm_rate": np.nan,
+        }
+
+    total_windows = 0
+    total_alarm_windows = 0
+    total_episodes = 0
+    events_with_alarm = 0
+
+    for _, event in normal.groupby(["asset_id", "event_id"]):
+        flags = (event["probability"].to_numpy() > threshold).astype(int)
+        episodes = _count_runs(flags, min_consecutive)
+
+        total_windows += len(flags)
+        total_alarm_windows += int(flags.sum())
+        total_episodes += episodes
+        events_with_alarm += int(episodes > 0)
+
+    exposure_hours = total_windows * hours_per_window
+
+    return {
+        "n_normal_events": int(normal.groupby(["asset_id", "event_id"]).ngroups),
+        "n_normal_windows": int(total_windows),
+        "n_alarm_windows": int(total_alarm_windows),
+        "window_alarm_rate": float(total_alarm_windows / total_windows),
+        "n_alarm_episodes": int(total_episodes),
+        "episodes_per_1000h": float(total_episodes * 1000.0 / exposure_hours) if exposure_hours else np.nan,
+        "n_events_with_alarm": int(events_with_alarm),
+        "event_alarm_rate": float(events_with_alarm / normal.groupby(["asset_id", "event_id"]).ngroups),
+    }
+
+
+def _count_runs(flags: np.ndarray, length: int) -> int:
+    """Number of distinct runs of at least `length` consecutive ones."""
+    count = 0
+    run = 0
+    for flag in flags:
+        if flag:
+            run += 1
+            if run == length:
+                count += 1
+        else:
+            run = 0
+    return count
+
+
+def operating_point(df: pd.DataFrame, threshold: float,
+                    min_consecutive: int = 1,
+                    hours_per_window: float = 1.0) -> dict:
+    """
+    Lead time and false-alarm behaviour at one threshold, in a single row.
+
+    Sweeping this across thresholds is what belongs in the Results section:
+    it shows the earliness/nuisance trade-off directly, which neither metric
+    shows alone.
+    """
+    per_event = lead_time(df, threshold, min_consecutive=min_consecutive)
+    lead = lead_time_summary(per_event)
+    false_alarms = false_alarm_rate(
+        df, threshold,
+        min_consecutive=min_consecutive,
+        hours_per_window=hours_per_window,
+    )
+
+    return {
+        "threshold": float(threshold),
+        "min_consecutive": int(min_consecutive),
+        "n_fault_events": lead["n_fault_events"],
+        "detection_rate": lead["detection_rate"],
+        "median_lead_time_hours": lead["median_lead_time_hours"],
+        "mean_lead_time_hours": lead["mean_lead_time_hours"],
+        "window_alarm_rate": false_alarms["window_alarm_rate"],
+        "episodes_per_1000h": false_alarms["episodes_per_1000h"],
+        "event_alarm_rate": false_alarms["event_alarm_rate"],
+    }
+
+
+def operating_point_sweep(df: pd.DataFrame, thresholds: np.ndarray,
+                          min_consecutive: int = 1,
+                          hours_per_window: float = 1.0) -> pd.DataFrame:
+    """operating_point() across a threshold grid, one row per threshold."""
+    return pd.DataFrame([
+        operating_point(df, tau, min_consecutive, hours_per_window)
+        for tau in thresholds
+    ])
 
 
 # ---------------------------------------------------------------------------
