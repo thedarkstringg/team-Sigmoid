@@ -88,6 +88,59 @@ def benchmark(model: torch.nn.Module, device: torch.device, batch_size: int,
     return result
 
 
+def measure_training_memory(model: torch.nn.Module, device: torch.device,
+                            batch_size: int, steps: int = 5) -> dict:
+    """
+    Peak GPU memory during training, measured with torch's own allocator.
+
+    Synthetic tensors of the correct shape are used rather than real sequences.
+    Peak memory is determined by architecture, batch size and sequence length,
+    not by the values in the data, so this gives the same answer as a real run
+    while needing no data files. Say so in the writeup.
+
+    Preferred over nvidia-smi on a shared GPU: nvidia-smi reports whole-device
+    usage including the CUDA context and any other user's job, whereas these
+    counters are scoped to this process.
+    """
+    if device.type != "cuda":
+        return {"available": False, "reason": "training memory requires a CUDA device"}
+
+    model = model.to(device).train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = torch.nn.BCEWithLogitsLoss(reduction="none")
+
+    x = torch.randn(batch_size, SEQ_LEN, INPUT_SIZE, device=device)
+    y = torch.randint(0, 2, (batch_size, SEQ_LEN), device=device).float()
+    mask = torch.ones(batch_size, SEQ_LEN, device=device)
+
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+
+    for _ in range(steps):
+        optimizer.zero_grad(set_to_none=True)
+        logits = model(x)
+        loss = (criterion(logits, y) * mask).sum() / mask.sum()
+        loss.backward()
+        optimizer.step()
+
+    torch.cuda.synchronize(device)
+
+    result = {
+        "available": True,
+        "batch_size": batch_size,
+        "steps": steps,
+        "peak_training_memory_allocated_mb": round(
+            torch.cuda.max_memory_allocated(device) / (1024 ** 2), 3
+        ),
+        "peak_training_memory_reserved_mb": round(
+            torch.cuda.max_memory_reserved(device) / (1024 ** 2), 3
+        ),
+    }
+
+    model.eval()
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, default="checkpoints/h32_dropout/best.pt")
@@ -97,6 +150,8 @@ def main() -> None:
                         help="must match the value used when this checkpoint was trained")
     parser.add_argument("--batch_sizes", type=int, nargs="+", default=[1, 64],
                         help="1 = single-turbine inference, 64 = fleet-scale batch")
+    parser.add_argument("--train_batch_size", type=int, default=32,
+                        help="should match train.py's --batch_size for a comparable number")
     parser.add_argument("--repeats", type=int, default=50)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--out", type=str, default="artifacts/deployment_note.json")
@@ -132,8 +187,12 @@ def main() -> None:
 
     devices = [torch.device("cpu")]
     if torch.cuda.is_available():
-        devices.append(torch.device("cuda"))
+        cuda = torch.device("cuda")
+        devices.append(cuda)
         report["gpu_name"] = torch.cuda.get_device_name(0)
+        free_bytes, total_bytes = torch.cuda.mem_get_info(cuda)
+        report["gpu_total_memory_mb"] = round(total_bytes / (1024 ** 2), 1)
+        report["gpu_free_memory_mb_at_start"] = round(free_bytes / (1024 ** 2), 1)
     else:
         report["gpu_name"] = None
         print("WARNING: CUDA not available - GPU latency will be missing from the report.")
@@ -143,6 +202,13 @@ def main() -> None:
             report["benchmarks"].append(
                 benchmark(model, device, batch_size, args.repeats, args.warmup)
             )
+
+    if torch.cuda.is_available():
+        report["training_memory"] = measure_training_memory(
+            model, torch.device("cuda"), args.train_batch_size
+        )
+    else:
+        report["training_memory"] = {"available": False, "reason": "no CUDA device"}
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
