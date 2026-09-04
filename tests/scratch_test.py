@@ -4,7 +4,7 @@ from src.model.model import TemporalRiskModel
 # --- Config, matching the design decided on in the proposal / conversation ---
 batch_size = 32
 seq_len = 144          # 24h window at 10-min resolution: 24*60/10 = 144
-num_features = 86      # Farm A feature count
+num_features = 54      # Farm A feature count
 hidden_size = 64
 
 # 1. Dummy input and labels
