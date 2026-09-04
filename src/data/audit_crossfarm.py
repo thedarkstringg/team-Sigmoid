@@ -56,7 +56,7 @@ def main() -> None:
     sensors = required_sensor_ids(config, args.farm)
     event_info = pd.read_csv(args.raw_dir / "comma_event_info.csv")
     raw_stats: dict[str, dict[str, Any]] = {
-        sensor: {"count": 0, "missing": 0, "nonfinite": 0, "zeros": 0, "min": np.inf, "max": -np.inf, "samples": []}
+        sensor: {"count": 0, "missing": 0, "nonfinite": 0, "zeros": 0, "negative": 0, "min": np.inf, "max": -np.inf, "samples": []}
         for sensor in sensors
     }
     continuity = []
@@ -64,6 +64,7 @@ def main() -> None:
     feature_valid = defaultdict(lambda: [0, 0])
     feature_samples = defaultdict(list)
     frequency_samples: list[np.ndarray] = []
+    frequency_outside_plausible = 0
     availability_failures = []
     for event_id in sorted(event_info["event_id"].astype(int)):
         path = args.raw_dir / f"comma_{event_id}.csv"
@@ -101,6 +102,7 @@ def main() -> None:
             stats["missing"] += int(series.isna().sum())
             stats["nonfinite"] += int(np.isinf(numeric).sum())
             stats["zeros"] += int(np.sum(finite == 0))
+            stats["negative"] += int(np.sum(finite < 0))
             if len(finite):
                 stats["min"] = min(stats["min"], float(finite.min()))
                 stats["max"] = max(stats["max"], float(finite.max()))
@@ -121,6 +123,9 @@ def main() -> None:
                 feature_samples[name].extend(finite[::step][: args.sample_per_event].tolist())
         frequency_sensor = config["features"]["grid_frequency_deviation_Hz"]["farms"][args.farm]["grid_frequency"]
         frequency = logical[frequency_sensor].to_numpy(dtype=float)
+        frequency_outside_plausible += int(
+            np.sum(np.isfinite(frequency) & ((frequency < 45) | (frequency > 55)))
+        )
         frequency_samples.append(frequency[np.isfinite(frequency) & (frequency >= 45) & (frequency <= 55)])
 
     raw_report = {}
@@ -152,6 +157,7 @@ def main() -> None:
     expected = float(config["global_validity"]["expected_grid_frequency_hz"])
     tolerance = float(config["global_validity"]["allowed_frequency_median_error_hz"])
     frequency_passed = bool(np.isfinite(median_frequency) and abs(median_frequency - expected) <= tolerance)
+    wind_sensor = config["features"]["wind_speed_mps"]["farms"][args.farm]["wind_speed"]
     report = {
         "audit_version": "crossfarm-physical-v1",
         "farm": args.farm,
@@ -165,6 +171,17 @@ def main() -> None:
         "raw_channel_summary": raw_report,
         "suspicious_zero_runs": zero_runs,
         "derived_feature_summary": derived_report,
+        "impossible_value_summary": {
+            "negative_wind_speed_count": int(raw_report[wind_sensor]["negative"]),
+            "power_factor_outside_0_1_sample_count": int(
+                np.sum(
+                    (np.asarray(feature_samples["grid_power_factor"], dtype=float) < 0)
+                    | (np.asarray(feature_samples["grid_power_factor"], dtype=float) > 1 + 1e-9)
+                )
+            ),
+            "frequency_outside_45_55_hz_count": frequency_outside_plausible,
+            "nonfinite_raw_value_count": int(sum(item["nonfinite"] for item in raw_report.values())),
+        },
         "operating_range_checks": {
             "wind_speed_nonnegative_enforced": True,
             "yaw_output_range_deg": [0, 180],

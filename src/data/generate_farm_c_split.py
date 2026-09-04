@@ -17,7 +17,7 @@ def event_assets(raw_dir: Path, event_info: pd.DataFrame) -> dict[int, str]:
         path = raw_dir / f"comma_{event_id}.csv"
         if not path.exists():
             raise FileNotFoundError(path)
-        values = pd.read_csv(path, usecols=["asset_id"], nrows=1000)["asset_id"].dropna().unique()
+        values = pd.read_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
         if len(values) != 1:
             raise ValueError(f"Event {event_id} does not prove one asset_id: {values}")
         result[event_id] = str(values[0])
@@ -33,7 +33,6 @@ def choose_split(
     n_test = max(2, round(0.15 * len(assets)))
     n_train = len(assets) - n_val - n_test
     rng = np.random.default_rng(seed)
-    labels = events.set_index("asset_id")["event_label"]
     global_counts = events["event_label"].value_counts()
     target_asset = {"train": 0.70, "val": 0.15, "test": 0.15}
     sizes = {"train": n_train, "val": n_val, "test": n_test}
@@ -77,6 +76,15 @@ def main() -> None:
     event_summaries = {}
     for name, split_assets in split.items():
         subset = events[events["asset_id"].isin(split_assets)]
+        missing_labels = {
+            label for label in ("anomaly", "normal")
+            if not (subset["event_label"] == label).any()
+        }
+        if missing_labels:
+            raise RuntimeError(
+                f"Deterministic search did not find {name} coverage for {sorted(missing_labels)}; "
+                "increase --trials or review whether asset-level coverage is feasible"
+            )
         event_summaries[name] = {
             "assets": split_assets,
             "event_ids": sorted(subset["event_id"].astype(int).tolist()),
@@ -99,4 +107,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

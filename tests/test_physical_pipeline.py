@@ -12,10 +12,12 @@ from src.data.build_physical_manifest import build_manifest
 from src.data.export_physical_sequences import prepare_power_curve
 from src.data.physical_features import (
     compute_physical_features,
+    fit_binned_power_curve,
     grid_power_factor,
     load_mapping,
     phase_imbalance,
     required_sensor_ids,
+    resolve_average_columns,
     wrap_to_180,
 )
 from src.data.sequence_utils import (
@@ -43,6 +45,15 @@ class PhysicalFormulaTests(unittest.TestCase):
         np.testing.assert_array_equal(actual, expected)
         self.assertTrue(np.all(actual >= -180))
         self.assertTrue(np.all(actual < 180))
+
+    def test_column_resolution_selects_only_average_compatible_names(self):
+        resolved = resolve_average_columns(
+            ["sensor_1", "sensor_1_avg", "sensor_1_max", "sensor_2_average"],
+            ["sensor_1", "sensor_2"],
+        )
+        self.assertEqual(resolved, {"sensor_1": "sensor_1_avg", "sensor_2": "sensor_2_average"})
+        with self.assertRaises(ValueError):
+            resolve_average_columns(["sensor_3_max", "sensor_3_std"], ["sensor_3"])
 
     def test_current_imbalance_formula(self):
         values = pd.DataFrame([[9.0, 10.0, 11.0], [4.0, 4.0, 4.0]])
@@ -89,6 +100,15 @@ class PhysicalFormulaTests(unittest.TestCase):
         self.assertTrue((features["gearbox_oil_rise_C"] == 40.0).all())
         self.assertTrue((features["gearbox_bearing_hotspot_over_oil_C"] == 10.0).all())
 
+    def test_invalid_physical_values_are_nan_for_safe_fill(self):
+        frame = self.farm_a_frame()
+        frame.loc[1, "wind_speed_3"] = -1.0
+        features, valid = compute_physical_features(
+            frame, "A", self.config, frequency_validated=True
+        )
+        self.assertFalse(valid.loc[1, "wind_speed_mps"])
+        self.assertTrue(np.isnan(features.loc[1, "wind_speed_mps"]))
+
     def test_feature_order_and_manifest(self):
         features, _ = compute_physical_features(
             self.farm_a_frame(), "A", self.config, frequency_validated=True
@@ -97,6 +117,62 @@ class PhysicalFormulaTests(unittest.TestCase):
         manifest = build_manifest(self.config)
         self.assertEqual(manifest["feature_name"].tolist(), self.config["strict_feature_order"])
         self.assertEqual(len(manifest), 10)
+
+    def valid_frame(self, farm: str) -> pd.DataFrame:
+        frame = pd.DataFrame(
+            {sensor: [1.0] for sensor in required_sensor_ids(self.config, farm)}
+        )
+        definitions = self.config["features"]
+        power = definitions["grid_power_factor"]["farms"][farm]
+        frame[power["active_power"]] = 3.0
+        frame[power["reactive_power"]] = 4.0
+        current = definitions["grid_current_imbalance"]["farms"][farm]["phase_currents"]
+        frame[current] = [9.0, 10.0, 11.0]
+        voltage = definitions["grid_voltage_imbalance"]["farms"][farm]["phase_voltages"]
+        frame[voltage] = [220.0, 230.0, 240.0]
+        frequency = definitions["grid_frequency_deviation_Hz"]["farms"][farm]["grid_frequency"]
+        frame[frequency] = 50.0
+        speed = definitions["generator_rotor_speed_ratio"]["farms"][farm]
+        frame[speed["rotor_speeds"]] = 2.0
+        return frame
+
+    def test_exact_farm_specific_yaw_formulas(self):
+        farm_b = self.valid_frame("B")
+        farm_b["sensor_4"] = 350.0
+        farm_b["sensor_21"] = 10.0
+        b_features, _ = compute_physical_features(
+            farm_b, "B", self.config, frequency_validated=True
+        )
+        self.assertEqual(b_features.loc[0, "yaw_misalignment_deg"], 20.0)
+        farm_c = self.valid_frame("C")
+        farm_c["sensor_124"] = -190.0
+        c_features, _ = compute_physical_features(
+            farm_c, "C", self.config, frequency_validated=True
+        )
+        self.assertEqual(c_features.loc[0, "yaw_misalignment_deg"], 170.0)
+
+    def test_farm_c_generator_speed_unit_conversion(self):
+        frame = self.valid_frame("C")
+        frame["sensor_8"] = 2.0 * np.pi
+        frame[["sensor_144", "sensor_145"]] = 2.0
+        features, valid = compute_physical_features(
+            frame, "C", self.config, frequency_validated=True
+        )
+        self.assertTrue(valid.loc[0, "generator_rotor_speed_ratio"])
+        self.assertAlmostEqual(features.loc[0, "generator_rotor_speed_ratio"], 30.0)
+
+    def test_binned_power_curve_median_and_interpolation(self):
+        curve = fit_binned_power_curve(
+            pd.Series([0.1, 0.2, 0.3, 1.1, 1.2, 1.3]),
+            pd.Series([0.0, 2.0, 100.0, 10.0, 12.0, 1000.0]),
+            bin_width=1.0,
+            min_bin_count=3,
+            provenance={"farm": "C", "setting": "source-domain-train-normal-only"},
+        )
+        np.testing.assert_allclose(curve.median_power, [2.0, 12.0])
+        expected = curve.expected_power(np.asarray([0.75]))
+        self.assertGreater(expected[0], 2.0)
+        self.assertLess(expected[0], 12.0)
 
 
 class MetadataAndLeakageTests(unittest.TestCase):
@@ -153,4 +229,3 @@ class MetadataAndLeakageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

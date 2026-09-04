@@ -81,9 +81,9 @@ def event_asset(frame: pd.DataFrame, event_id: int) -> Any:
 
 
 def read_asset_only(path: Path, event_id: int) -> Any:
-    values = pd.read_csv(path, usecols=["asset_id"], nrows=1000)["asset_id"].dropna().unique()
+    values = pd.read_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
     if len(values) != 1:
-        raise ValueError(f"Event {event_id} does not prove one asset in its first 1000 rows: {values}")
+        raise ValueError(f"Event {event_id} does not contain exactly one asset: {values}")
     return values[0]
 
 
@@ -99,12 +99,32 @@ def collect_power_curve_data(
     winds, powers, used_events = [], [], []
     normal = event_info[event_info["event_label"] == "normal"].sort_values("event_id")
     for row in normal.itertuples(index=False):
-        frame, _ = read_event_raw(raw_dir / f"comma_{int(row.event_id)}.csv", sensors)
-        asset = str(event_asset(frame, int(row.event_id)))
+        path = raw_dir / f"comma_{int(row.event_id)}.csv"
+        header = pd.read_csv(path, nrows=0).columns.tolist()
+        if "train_test" not in header:
+            raise ValueError(
+                f"{path} has no train_test column; refusing to fit a power curve "
+                "without proving TRAIN-row scope"
+            )
+        resolved = resolve_average_columns(header, sensors)
+        frame = pd.read_csv(
+            path,
+            usecols=["asset_id", "train_test"] + list(resolved.values()),
+        )
+        asset_values = frame["asset_id"].dropna().unique()
+        if len(asset_values) != 1:
+            raise ValueError(f"Event {int(row.event_id)} does not contain exactly one asset")
+        asset = str(asset_values[0])
         if allowed_assets is not None and asset not in allowed_assets:
             continue
-        winds.append(frame[definition["wind_speed"]])
-        powers.append(frame[definition["active_power"]])
+        train_rows = frame["train_test"].astype(str).str.strip().str.lower().eq("train")
+        if not train_rows.any():
+            raise ValueError(f"Normal event {int(row.event_id)} has no train_test=train rows")
+        logical = rename_to_sensor_ids(frame.loc[train_rows], resolved).apply(
+            pd.to_numeric, errors="coerce"
+        )
+        winds.append(logical[definition["wind_speed"]])
+        powers.append(logical[definition["active_power"]])
         used_events.append(int(row.event_id))
     if not winds:
         raise ValueError("No normal-event observations satisfy the power-curve fit policy")
@@ -120,7 +140,17 @@ def prepare_power_curve(
     if not args.include_power_residual:
         return None
     if args.power_curve:
-        return PowerCurve.load(args.power_curve)
+        curve = PowerCurve.load(args.power_curve)
+        if args.farm in {"A", "B"} and not args.allow_target_power_calibration:
+            raise ValueError(
+                "Using any Farm A/B power curve requires --allow-target-power-calibration; "
+                "this is not zero-shot DG"
+            )
+        if curve.provenance.get("farm") != args.farm:
+            raise ValueError("Power-curve provenance farm does not match the export farm")
+        if args.farm == "C" and curve.provenance.get("setting") != "source-domain-train-normal-only":
+            raise ValueError("Farm C power curve must attest train-normal-only fitting")
+        return curve
     if args.farm == "C":
         allowed = {asset for asset, split in split_assets.items() if split == "train"}
         setting = "source-domain-train-normal-only"
@@ -143,7 +173,8 @@ def prepare_power_curve(
             "setting": setting,
             "event_scope": "normal events only",
             "event_ids": events,
-            "split_scope": "train" if args.farm == "C" else "target calibration",
+            "row_scope": "train_test=train",
+            "split_scope": "source train assets" if args.farm == "C" else "target calibration",
         },
     )
     curve.save(args.output_dir / "power_curve.json")
@@ -172,7 +203,7 @@ def build_event_sequences(
     final_candidate = event_end - pd.Timedelta(minutes=INTERVAL_MINUTES)
     candidates = pd.date_range(event_start, final_candidate, freq=f"{STRIDE_HOURS}h")
     sequences = []
-    rejected = {"endpoint": 0, "coverage": 0, "gap": 0, "unfillable": 0}
+    rejected = {"endpoint": 0, "coverage": 0, "gap": 0, "no_valid_timestep": 0}
     for window_end in candidates:
         if window_end not in raw.index:
             rejected["endpoint"] += 1
@@ -194,10 +225,13 @@ def build_event_sequences(
         aligned = physical.reindex(regular_index)
         aligned_valid = feature_valid.reindex(regular_index, fill_value=False)
         mask = (aligned.notna().all(axis=1) & aligned_valid.all(axis=1)).astype(np.uint8).to_numpy()
-        filled = aligned.ffill().bfill()
-        if filled.isna().any().any() or not np.isfinite(filled.to_numpy(dtype=float)).all():
-            rejected["unfillable"] += 1
+        if not mask.any():
+            rejected["no_valid_timestep"] += 1
             continue
+        # At most two missing 10-minute rows can exist inside an approved
+        # <=30-minute timestamp gap. Longer physical-invalid runs remain NaN
+        # here and are later replaced by the Farm-C-train mean (scaled zero).
+        filled = aligned.ffill(limit=2).bfill(limit=2)
         labels = timestep_labels(regular_index, event_label, event_end)
         sequences.append(
             {
@@ -260,7 +294,13 @@ def save_outputs(
         mean, std = load_scaler(args.scaler, names)
         scaler_path = args.scaler
     for split in grouped:
-        arrays[f"{split}_X"] = apply_scaler(arrays[f"{split}_X"], mean, std)
+        values = arrays[f"{split}_X"]
+        valid_rows = arrays[f"{split}_mask"].astype(bool)
+        finite = np.isfinite(values)
+        if ((~finite) & valid_rows[..., None]).any():
+            raise ValueError(f"Farm {args.farm} {split} has non-finite values at valid timesteps")
+        values = np.where(finite, values, mean.reshape(1, 1, -1))
+        arrays[f"{split}_X"] = apply_scaler(values, mean, std)
         np.save(args.output_dir / f"{split}_X.npy", arrays[f"{split}_X"])
         np.save(args.output_dir / f"{split}_y.npy", arrays[f"{split}_y"])
         np.save(args.output_dir / f"{split}_mask.npy", arrays[f"{split}_mask"])

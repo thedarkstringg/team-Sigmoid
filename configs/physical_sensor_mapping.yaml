@@ -180,10 +180,9 @@ optional_features:
     unit: ratio
     formula: (active_power - interpolated_expected_power(wind_speed)) / power_scale
     curve_method: wind-speed bins, median active power per bin, linear interpolation
-    fit_policy_c: Farm C train split and normal events only
+    fit_policy_c: Farm C source-train assets, normal events, and train_test=train rows only
     target_policy_ab: Requires --allow-target-power-calibration and is not zero-shot DG.
     farms:
       A: {wind_speed: wind_speed_3, active_power: power_30}
       B: {wind_speed: wind_speed_61, active_power: power_62}
       C: {wind_speed: wind_speed_236, active_power: power_6}
-

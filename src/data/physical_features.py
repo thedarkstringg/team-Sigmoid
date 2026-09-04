@@ -229,7 +229,7 @@ def compute_physical_features(
     ordered = feature_order(config, include_power_residual=power_curve is not None)
     feature_frame = pd.DataFrame(features, index=raw_by_sensor.index)[ordered]
     valid_frame = pd.DataFrame(validity, index=raw_by_sensor.index)[ordered].astype(bool)
-    return feature_frame, valid_frame
+    return feature_frame.where(valid_frame), valid_frame
 
 
 @dataclass(frozen=True)
@@ -289,7 +289,7 @@ def fit_binned_power_curve(
     values = values[values["wind"] >= 0]
     if values.empty:
         raise ValueError("No finite wind/power observations for power-curve fitting")
-    bins = np.floor(values["wind"] / bin_width).astype(int)
+    bins = np.floor(values["wind"] / bin_width).astype(int).rename("wind_bin")
     grouped = values.groupby(bins).agg(wind=("wind", "median"), power=("power", "median"), count=("power", "size"))
     grouped = grouped[grouped["count"] >= min_bin_count].sort_values("wind")
     if len(grouped) < 2:
