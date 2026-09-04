@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data.physical_features import load_mapping
+try:
+    from src.data.physical_features import load_mapping
+except ModuleNotFoundError:  # Support `python src/data/build_physical_manifest.py`.
+    from physical_features import load_mapping
 
 
 def build_manifest(config: dict) -> pd.DataFrame:
@@ -45,4 +48,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

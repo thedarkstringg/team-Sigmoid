@@ -30,4 +30,5 @@ torchaudio==2.11.0+cu128
 torchvision==0.26.0+cu128
 typing_extensions==4.16.0
 kaggle==1.7.4.5
+kagglehub==1.0.2
 tzdata==2026.3
