@@ -132,4 +132,3 @@ def load_passing_frequency_audit(path: str | Path, farm: str) -> dict[str, Any]:
     if not validation.get("passed", False):
         raise ValueError("Frequency audit did not confirm a 50 Hz-centered signal")
     return report
-
