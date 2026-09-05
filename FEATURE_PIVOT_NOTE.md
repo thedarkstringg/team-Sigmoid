@@ -1,107 +1,108 @@
 # Feature Representation Pivot — Raw Sensors → Physical Subsystem Vectors
 
+**Author:** Ziyad
 **Date:** 2026-09-04 (follow-up to PIVOT_NOTE.md's Farm A → Farm C pivot)
 
-## What changed
+## What I changed and why
 
-The model's input is no longer raw per-farm sensor channels (which differ
-completely in count and schema across farms: 54 / 63 / 238+ features for
-Farms A/B/C). Instead, the data pipeline maps each farm's raw sensors into
-a small set of **physically-meaningful, farm-agnostic subsystem features**,
-computed identically regardless of which farm the data comes from:
+I moved the model's input away from raw per-farm sensor channels, which
+differ completely in count and schema across farms (54 / 63 / 238+ features
+for Farms A/B/C). Training a model on one farm's raw sensors made it
+impossible to evaluate that same model on a different farm without a
+dimension mismatch — which directly blocked the generalization study our
+proposal always intended.
 
-| Subsystem Vector | What It Aggregates |
-|---|---|
-| Power Residual | Actual Active Power − Theoretical Power(Wind Speed) |
-| Thermal Delta (gearbox) | Gearbox Bearing Temp − Ambient Temp |
-| Thermal Delta (generator) | Generator Bearing Temp − Ambient Temp |
-| Kinematic Ratio | Generator RPM / Rotor RPM |
-| Vibration Index | Rolling mean of available bearing vibration std channels |
+The fix: I asked Ismayil to build a small set of **physically-meaningful,
+farm-agnostic subsystem features**, computed identically regardless of
+which farm the data comes from, using each farm's sensor description file
+to map differently-named raw channels onto the same physical quantities.
 
-**The exact final set/count of subsystem vectors is not fixed at 5** — it
-is determined by Ismayil based on what can actually be reliably computed
-across all farms using the sensor description file (see "Open items"
-below). The model code has been updated so `input_size` is **inferred
-directly from the data's shape at load time**, not hardcoded anywhere, so
-this can change without requiring a code update on Ziyad's side.
+I originally sketched five illustrative features (power residual, two
+thermal deltas, a kinematic ratio, a vibration index) as a starting point.
+Ismayil's actual audit and mapping work (PR #4, `ismayil/cross-farm-physical`)
+resulted in a different, better-justified final schema — **10 features**,
+none of them a raw vibration statistic, since Zenodo's own documentation
+flags Min/Max/Std reliability problems for Farms B/C, and Ismayil dropped
+that feature category rather than risk building on known-contaminated data:
 
-## Why this is a better approach than the raw-sensor pivot alone
+| # | Feature | What It Captures |
+|---|---|---|
+| 1 | `wind_speed_mps` | Wind speed |
+| 2 | `pitch_angle_deg` | Blade pitch angle |
+| 3 | `yaw_misalignment_deg` | Nacelle-to-wind yaw misalignment |
+| 4 | `gearbox_oil_rise_C` | Gearbox oil temp above ambient |
+| 5 | `gearbox_bearing_hotspot_over_oil_C` | Hottest gearbox bearing above oil temp |
+| 6 | `generator_rotor_speed_ratio` | Generator RPM / rotor RPM |
+| 7 | `grid_power_factor` | Active power / apparent power |
+| 8 | `grid_current_imbalance` | Max phase-current deviation from mean |
+| 9 | `grid_voltage_imbalance` | Max phase-voltage deviation from mean |
+| 10 | `grid_frequency_deviation_Hz` | Deviation from expected 50 Hz grid frequency |
 
-The team's first pivot (Farm A → Farm C, see `PIVOT_NOTE.md`) addressed the
-single-turbine variance problem but did not address the cross-farm schema
-mismatch — a Farm-C-trained model could not be evaluated directly on Farm
-A or B data, since the raw feature counts don't match. Physical subsystem
-aggregation solves this: the same 5 (or however many) subsystem features
-are computed for every farm, so **one trained model can be evaluated
-directly on any farm without a dimension mismatch** — this is a real,
-architecturally clean way to run the generalization study the project's
-proposal always intended, not a workaround.
+Exact mappings, formulas, and per-farm sensor sources live in
+`configs/physical_sensor_mapping.yaml` and
+`artifacts/data/physical_feature_manifest.csv`.
 
-## Architecture decision: 2-layer GRU (not 3-layer)
+I updated my model code (`model.py`, `train.py`, `evaluate.py`) so
+`input_size` is **inferred directly from the data's shape at load time**,
+not hardcoded — this is why the schema changing from my original 5-feature
+sketch to Ismayil's final 10-feature version required zero changes on my
+side.
 
-Confirmed: staying with **2 layers**, not the 3-layer variant that was
-tested earlier. The 3-layer experiment (on Farm A raw sensors) did not
-show a meaningful improvement over 2 layers, consistent with the earlier
-finding that added capacity did not help on this dataset size. Simpler
-architecture, same reasoning as before.
+## Why this is a better approach than the Farm A → Farm C pivot alone
 
-## What changed in the code (already done)
+Our first pivot (documented in `PIVOT_NOTE.md`) addressed the single-turbine
+variance problem I found in Farm A's results, but it didn't address the
+cross-farm schema mismatch. A Farm-C-trained model still couldn't be
+evaluated on Farm A or B data, since raw feature counts don't match between
+farms. Physical subsystem aggregation solves this properly: the same 10
+features are computed for every farm, so I can evaluate one trained
+checkpoint directly on a different farm's data with zero dimension
+mismatch — a real, architecturally clean generalization test, not a
+workaround.
+
+## Architecture decision: 2-layer GRU
+
+I'm keeping 2 layers, not the 3-layer variant I tested earlier on Farm A's
+raw sensors — that experiment showed no meaningful improvement over 2
+layers, consistent with my earlier finding (hidden=64 vs. 32 tied exactly)
+that added capacity doesn't help on this dataset size. Simpler stays the
+default until an actual experiment justifies otherwise.
+
+## What I changed in the code (done and pushed to `main`)
 
 - `model.py`: `input_size` is now a required, explicit argument (no
-  hardcoded default) with a docstring explaining it depends on the final
-  subsystem-vector count.
+  hardcoded default), with a docstring explaining it depends on whatever
+  Ismayil's pipeline produces.
 - `train.py` / `evaluate.py`: `input_size` is inferred automatically from
-  the loaded data's shape (`X.shape[-1]`) rather than hardcoded — this
-  means the code does not need to change again if the subsystem-vector
-  count changes.
-- Default `hidden_size=32`, `dropout=0.3`, `num_layers=2` — the
-  best-performing configuration found during Farm A tuning, kept as the
-  starting point for Farm C.
-- Default `data_dir` updated to point at Farm C as the primary training
-  target.
-- `evaluate.py` now explicitly documents that pointing `--data_dir` at a
-  *different* farm's exported sequences than the training farm is exactly
-  how to run the cross-farm generalization study.
+  the loaded data's shape (`X.shape[-1]`).
+- Defaults: `hidden_size=32`, `dropout=0.3`, `num_layers=2` — my
+  best-performing configuration from Farm A tuning, kept as the Farm C
+  starting point.
+- Default `data_dir` points at Farm C as the primary training target.
+- `evaluate.py` documents that pointing `--data_dir` at a *different*
+  farm's exported sequences than the training farm is exactly how to run
+  Kamal's cross-farm generalization study.
 
-## Open items — for Ismayil
+## Current blocker (as of this writing)
 
-1. **Confirm the sensor description file's exact location/format** for
-   all three farms, and share it with the team.
-2. **Build the sensor-to-physical-type mapping** per farm using that file
-   (which raw sensor is "gearbox bearing temperature," "ambient
-   temperature," "active power," "wind speed," "generator RPM," "rotor
-   RPM," and bearing vibration channels, for each farm).
-3. **Power Residual requires fitting a power curve** (expected power as a
-   function of wind speed) — this is not a raw sensor, it must be built,
-   typically via binning wind speed and taking the median power per bin
-   from *normal-operation training data only*, computed **separately per
-   farm** (turbine models/curves differ).
-4. **Check the Vibration Index against known data-quality issues** —
-   Zenodo's own documentation states Min/Max/Std statistics are largely
-   unreliable for Farm B (recommends "Avg signals only") and flags ~17
-   specific sensors with high contamination in Farm C. If the vibration
-   channels needed for this subsystem vector overlap with flagged/unreliable
-   sensors, either exclude those specific sensors or fall back to
-   average-only signals for that farm.
-5. **Report back the final, confirmed subsystem-vector list and count**
-   once built — this determines `input_size` automatically on Ziyad's
-   side, no separate sync needed, but the paper's Method section needs
-   the exact final list documented.
+Ismayil's `audit_crossfarm.py` is reading Farm C's raw CSVs with the wrong
+delimiter — the files are semicolon-delimited, not comma-delimited despite
+the `comma_*.csv` filenames, so the audit silently found zero usable
+columns across all 58 events. I found and reported this to him; waiting on
+his fix before the split/export/validate steps can run for real.
 
 ## What this means for Kamal's generalization study
 
-This directly resolves the open framing question from `KAMAL_ROADMAP.md`
-(Task 3): since subsystem vectors are farm-agnostic by construction, the
-generalization experiment is now straightforwardly: train on Farm C,
-evaluate the same trained checkpoint directly on Farm A and/or Farm B's
-exported sequences, no separate "shared feature subset" workaround needed.
-This is a cleaner, more direct test of transfer than what was possible
-under the raw-sensor approach.
+This resolves the open framing question from `KAMAL_ROADMAP.md` (Task 3):
+since the 10 subsystem features are farm-agnostic by construction, his
+generalization experiment is straightforwardly: train on Farm C, evaluate
+the same checkpoint directly on Farm A and/or Farm B's exported sequences.
+No shared-feature-subset workaround needed anymore.
 
 ## What this means for Emin's evaluation work
 
-No change to his metric logic — `prob`, `label`, `mask`, `asset_id`,
+No change to his metric logic. `prob`, `label`, `mask`, `asset_id`,
 `event_id`, `window_end` per timestep are unaffected by whether the
-underlying features are raw sensors or subsystem vectors. His work
-continues unblocked against the existing Farm A checkpoint/predictions
-table as before.
+underlying features are raw sensors or the 10 physical subsystem features.
+His work continues unblocked against the existing Farm A
+checkpoint/predictions table.
