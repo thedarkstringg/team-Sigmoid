@@ -19,7 +19,7 @@ try:
         HORIZON_HOURS, INTERVAL_MINUTES, LOOKBACK_HOURS, MAX_GAP_MINUTES,
         MIN_COVERAGE, SEQ_LEN, STRIDE_HOURS, apply_scaler, build_timestep_metadata,
         fit_train_scaler, load_passing_frequency_audit, load_scaler, save_scaler,
-        read_care_csv, sha256_file, timestep_labels,
+        read_care_csv, resolve_event_boundaries, sha256_file, timestep_labels,
     )
 except ModuleNotFoundError:  # Support direct script invocation from repo root.
     from physical_features import (
@@ -30,7 +30,7 @@ except ModuleNotFoundError:  # Support direct script invocation from repo root.
         HORIZON_HOURS, INTERVAL_MINUTES, LOOKBACK_HOURS, MAX_GAP_MINUTES,
         MIN_COVERAGE, SEQ_LEN, STRIDE_HOURS, apply_scaler, build_timestep_metadata,
         fit_train_scaler, load_passing_frequency_audit, load_scaler, save_scaler,
-        read_care_csv, sha256_file, timestep_labels,
+        read_care_csv, resolve_event_boundaries, sha256_file, timestep_labels,
     )
 
 
@@ -193,8 +193,9 @@ def build_event_sequences(
 ) -> list[dict[str, Any]]:
     event_id = int(event_row.event_id)
     event_label = str(event_row.event_label)
-    event_start = pd.Timestamp(event_row.event_start)
-    event_end = pd.Timestamp(event_row.event_end)
+    boundaries = resolve_event_boundaries(raw_path, event_row, farm)
+    event_start = boundaries.event_start
+    event_end = boundaries.event_end
     raw, _ = read_event_raw(raw_path, sensor_ids)
     asset_id = event_asset(raw, event_id)
     physical, feature_valid = compute_physical_features(
@@ -377,8 +378,9 @@ def main() -> None:
     config = load_mapping(args.config)
     load_passing_frequency_audit(args.audit_report, args.farm)
     event_info = read_care_csv(args.raw_dir / "comma_event_info.csv")
-    event_info["event_start"] = pd.to_datetime(event_info["event_start"])
-    event_info["event_end"] = pd.to_datetime(event_info["event_end"])
+    if args.farm in {"A", "B"}:
+        event_info["event_start"] = pd.to_datetime(event_info["event_start"])
+        event_info["event_end"] = pd.to_datetime(event_info["event_end"])
     split_payload = None
     if args.farm == "C":
         if args.split_config is None:
