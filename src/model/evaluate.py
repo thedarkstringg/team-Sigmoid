@@ -12,10 +12,17 @@ from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, re
 from model import TemporalRiskModel
 
 
-def load_split(data_dir, split):
+def load_split(data_dir, split, clip_value=10.0):
     x = np.load(f"{data_dir}/{split}_X.npy")
     y = np.load(f"{data_dir}/{split}_y.npy")
     mask = np.load(f"{data_dir}/{split}_mask.npy")
+    if clip_value is not None:
+        n_clipped = (np.abs(x) > clip_value).sum()
+        if n_clipped > 0:
+            print(f"  [{split}] clipping {n_clipped} extreme values "
+                  f"(|x| > {clip_value}) before evaluation - see FEATURE_PIVOT_NOTE.md "
+                  f"re: generator_rotor_speed_ratio leakage found in test split")
+        x = np.clip(x, -clip_value, clip_value)
     return torch.from_numpy(x).float(), torch.from_numpy(y).float(), torch.from_numpy(mask).float()
 
 
@@ -63,6 +70,8 @@ def main():
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.3,
                          help="must match the dropout used when this checkpoint was trained")
+    parser.add_argument("--bidirectional", action="store_true",
+                         help="must match whether this checkpoint was trained bidirectionally")
     parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args()
 
@@ -77,7 +86,8 @@ def main():
     print(f"Inferred input_size={inferred_input_size} from {args.data_dir}/val_X.npy")
 
     model = TemporalRiskModel(input_size=inferred_input_size, hidden_size=args.hidden_size,
-                               num_layers=args.num_layers, dropout=args.dropout).to(device)
+                               num_layers=args.num_layers, dropout=args.dropout,
+                               bidirectional=args.bidirectional).to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     print(f"Loaded checkpoint from epoch {checkpoint['epoch']}, "

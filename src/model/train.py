@@ -54,7 +54,7 @@ def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=5,
 
 
 def build_real_dataloaders(data_dir="data/processed/CARE_Farm_C/sequences",
-                            batch_size=32):
+                            batch_size=32, clip_value=10.0):
     """
     Loads Ismayil's exported .npy files per the agreed contract:
       train_X.npy (N,144,F) float32, train_y.npy (N,144) uint8,
@@ -64,11 +64,27 @@ def build_real_dataloaders(data_dir="data/processed/CARE_Farm_C/sequences",
       is farm-agnostic by design, so the same trained model can be evaluated
       directly on a different farm's exported sequences for the
       generalization study. Same file layout for val_/test_.
+
+    clip_value: some physical ratio features (e.g. generator/rotor speed
+    ratio) can explode toward +/-infinity when a denominator approaches
+    zero, even at mask=0 (excluded) timesteps. Masking excludes a timestep
+    from the LOSS but does not stop its raw value from flowing through the
+    GRU's recurrent hidden state as part of the input sequence, potentially
+    distorting predictions at OTHER, valid timesteps in the same window.
+    Clipping standardized inputs to [-clip_value, clip_value] is a defensive
+    stopgap against this, independent of the upstream export pipeline's own
+    masking correctness. Set to None to disable.
     """
     def _load_split(split):
         x = np.load(os.path.join(data_dir, f"{split}_X.npy"))
         y = np.load(os.path.join(data_dir, f"{split}_y.npy"))
         mask = np.load(os.path.join(data_dir, f"{split}_mask.npy"))
+        if clip_value is not None:
+            n_clipped = (np.abs(x) > clip_value).sum()
+            if n_clipped > 0:
+                print(f"  [{split}] clipping {n_clipped} extreme values "
+                      f"(|x| > {clip_value}) before training")
+            x = np.clip(x, -clip_value, clip_value)
         return (torch.from_numpy(x).float(),
                 torch.from_numpy(y).float(),
                 torch.from_numpy(mask).float())
@@ -179,6 +195,9 @@ def main():
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.3,
                          help="dropout between GRU layers and before final projection")
+    parser.add_argument("--bidirectional", action="store_true",
+                         help="use a bidirectional GRU (offline ablation only - "
+                              "not causally deployable as a real-time streaming model)")
     parser.add_argument("--patience", type=int, default=5,
                          help="early stopping patience, in epochs")
     parser.add_argument("--checkpoint_dir", type=str, default="checkpoints")
@@ -221,7 +240,8 @@ def main():
     print(f"Inferred input_size={inferred_input_size} from loaded data")
 
     model = TemporalRiskModel(input_size=inferred_input_size, hidden_size=args.hidden_size,
-                               num_layers=args.num_layers, dropout=args.dropout).to(device)
+                               num_layers=args.num_layers, dropout=args.dropout,
+                               bidirectional=args.bidirectional).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler(device.type, enabled=(device.type == "cuda"))
 
