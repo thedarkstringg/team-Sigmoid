@@ -1,0 +1,188 @@
+schema_version: physical-v1
+statistic: average
+strict_feature_order:
+  - wind_speed_mps
+  - pitch_angle_deg
+  - yaw_misalignment_deg
+  - gearbox_oil_rise_C
+  - gearbox_bearing_hotspot_over_oil_C
+  - generator_rotor_speed_ratio
+  - grid_power_factor
+  - grid_current_imbalance
+  - grid_voltage_imbalance
+  - grid_frequency_deviation_Hz
+
+global_validity:
+  epsilon: 1.0e-6
+  minimum_rotor_speed_rpm: 0.5
+  minimum_apparent_power_kva: 1.0
+  minimum_mean_current_a: 0.1
+  minimum_mean_voltage_v: 1.0
+  expected_grid_frequency_hz: 50.0
+  allowed_frequency_median_error_hz: 0.5
+
+quality_policy:
+  shared_representation: average channels only
+  farm_b: Never use raw minimum, maximum, or standard-deviation channels.
+  farm_c: >-
+    Never use raw minimum, maximum, or standard-deviation channels. Known
+    contaminated Min/Max/Std sensor families are sensor_11, sensor_15,
+    sensor_40, sensor_61, sensor_62, sensor_63, sensor_64, sensor_74,
+    sensor_194, sensor_195, sensor_197, sensor_198, sensor_205, sensor_206,
+    sensor_207, sensor_217, and sensor_218.
+  zero_filled_missingness: >-
+    Farm B and Farm C may encode missing observations as zero. The audit must
+    report zero runs; the exporter does not silently reinterpret every zero,
+    because zero is physically valid for several selected channels.
+  cross_probe_maximum: >-
+    max() in the gearbox hotspot formula is across simultaneous average
+    channels, never a raw maximum-statistic channel.
+
+features:
+  wind_speed_mps:
+    unit: m/s
+    formula: wind_speed
+    validity: finite
+    farms:
+      A: {wind_speed: wind_speed_3}
+      B: {wind_speed: wind_speed_61}
+      C: {wind_speed: wind_speed_236}
+    quality_note: B and C expose aggregate wind-speed signals; validate ranges and zero runs.
+
+  pitch_angle_deg:
+    unit: degree
+    formula: mean(pitch_angles)
+    validity: finite; validate farm-specific sign and range conventions at runtime
+    farms:
+      A: {pitch_angles: [sensor_5]}
+      B: {pitch_angles: [sensor_10]}
+      C: {pitch_angles: [sensor_103, sensor_104, sensor_105]}
+    quality_note: Farm C is the mean of three rotor-blade position Avg channels.
+
+  yaw_misalignment_deg:
+    unit: degree
+    formula: abs(wrap_to_180(relative_angle))
+    validity: finite and result in [0, 180]
+    farms:
+      A:
+        mode: direct_relative
+        relative_angle: sensor_2
+        exact_formula: abs(wrap_to_180(Avg(sensor_2)))
+      B:
+        mode: absolute_minus_nacelle
+        absolute_wind_direction: sensor_4
+        nacelle_direction: sensor_21
+        exact_formula: abs(wrap_to_180(Avg(sensor_4) - Avg(sensor_21)))
+      C:
+        mode: direct_relative
+        relative_angle: sensor_124
+        exact_formula: abs(wrap_to_180(Avg(sensor_124)))
+    quality_note: Runtime audit must check raw sign/range conventions and circular-boundary behavior.
+
+  gearbox_oil_rise_C:
+    unit: degree_C
+    formula: mean(gearbox_oil_temperatures) - ambient_temperature
+    validity: finite
+    farms:
+      A: {gearbox_oil_temperatures: [sensor_12], ambient_temperature: sensor_0}
+      B: {gearbox_oil_temperatures: [sensor_39], ambient_temperature: sensor_8}
+      C: {gearbox_oil_temperatures: [sensor_186, sensor_187], ambient_temperature: sensor_7}
+    quality_note: Probe placement differs (generic oil, tank oil, and dual oil probes).
+
+  gearbox_bearing_hotspot_over_oil_C:
+    unit: degree_C
+    formula: max(gearbox_bearing_temperatures) - mean(gearbox_oil_temperatures)
+    validity: finite
+    farms:
+      A:
+        gearbox_bearing_temperatures: [sensor_11]
+        gearbox_oil_temperatures: [sensor_12]
+      B:
+        gearbox_bearing_temperatures: [sensor_34, sensor_35, sensor_36, sensor_37]
+        gearbox_oil_temperatures: [sensor_39]
+      C:
+        gearbox_bearing_temperatures:
+          [sensor_151, sensor_152, sensor_153, sensor_154, sensor_155, sensor_156,
+           sensor_157, sensor_158, sensor_159, sensor_160, sensor_161, sensor_162,
+           sensor_163, sensor_164, sensor_165, sensor_166]
+        gearbox_oil_temperatures: [sensor_186, sensor_187]
+    quality_note: Bearing stage and probe count differ by farm; this is a subsystem hotspot feature.
+
+  generator_rotor_speed_ratio:
+    unit: ratio
+    formula: generator_rpm / rotor_rpm
+    validity: rotor_rpm >= global_validity.minimum_rotor_speed_rpm
+    farms:
+      A:
+        generator_speed: sensor_18
+        generator_speed_unit: rpm
+        rotor_speeds: [sensor_52]
+        rotor_speed_unit: rpm
+      B:
+        generator_speed: sensor_19
+        generator_speed_unit: rpm
+        rotor_speeds: [sensor_25]
+        rotor_speed_unit: rpm
+      C:
+        generator_speed: sensor_8
+        generator_speed_unit: rad/s
+        rotor_speeds: [sensor_144, sensor_145]
+        rotor_speed_unit: rpm
+    quality_note: >-
+      Convert Farm C generator rad/s to rpm. Mask low-speed timesteps; do not
+      stabilize the denominator with epsilon. Nominal gear ratios may differ.
+
+  grid_power_factor:
+    unit: ratio
+    formula: abs(active_power) / sqrt(active_power^2 + reactive_power^2)
+    validity: apparent_power >= global_validity.minimum_apparent_power_kva
+    farms:
+      A: {active_power: power_30, reactive_power: sensor_31}
+      B: {active_power: power_62, reactive_power: reactive_power_11}
+      C: {active_power: power_6, reactive_power: reactive_power_122}
+    quality_note: Absolute value avoids farm-specific import/export sign conventions.
+
+  grid_current_imbalance:
+    unit: ratio
+    formula: max(abs(I_i - mean(I))) / (abs(mean(I)) + eps)
+    validity: abs(mean(I)) >= global_validity.minimum_mean_current_a
+    farms:
+      A: {phase_currents: [sensor_23, sensor_24, sensor_25]}
+      B: {phase_currents: [sensor_16, sensor_17, sensor_18]}
+      C: {phase_currents: [sensor_127, sensor_128, sensor_129]}
+    quality_note: Farm A descriptions do not explicitly call the phase currents RMS.
+
+  grid_voltage_imbalance:
+    unit: ratio
+    formula: max(abs(V_i - mean(V))) / (abs(mean(V)) + eps)
+    validity: abs(mean(V)) >= global_validity.minimum_mean_voltage_v
+    farms:
+      A: {phase_voltages: [sensor_32, sensor_33, sensor_34]}
+      B: {phase_voltages: [sensor_13, sensor_14, sensor_15]}
+      C: {phase_voltages: [sensor_139, sensor_140, sensor_141]}
+    quality_note: The ratio is scale-free; Farm A descriptions do not explicitly say RMS.
+
+  grid_frequency_deviation_Hz:
+    unit: Hz
+    formula: abs(grid_frequency - expected_grid_frequency_hz)
+    validity: >-
+      enabled only after runtime audit confirms the farm frequency median is
+      within global_validity.allowed_frequency_median_error_hz of 50 Hz
+    farms:
+      A: {grid_frequency: sensor_26}
+      B: {grid_frequency: sensor_23}
+      C: {grid_frequency: sensor_47}
+    quality_note: Export must fail unless a passing audit report is supplied or validation is explicitly rerun.
+
+optional_features:
+  power_residual:
+    enabled_by_default: false
+    unit: ratio
+    formula: (active_power - interpolated_expected_power(wind_speed)) / power_scale
+    curve_method: wind-speed bins, median active power per bin, linear interpolation
+    fit_policy_c: Farm C source-train assets, normal events, and train_test=train rows only
+    target_policy_ab: Requires --allow-target-power-calibration and is not zero-shot DG.
+    farms:
+      A: {wind_speed: wind_speed_3, active_power: power_30}
+      B: {wind_speed: wind_speed_61, active_power: power_62}
+      C: {wind_speed: wind_speed_236, active_power: power_6}

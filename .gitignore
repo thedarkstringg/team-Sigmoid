@@ -5,6 +5,12 @@
 data/*
 !data/.gitkeep
 !data/README.md
+/local_metadata/
+download_metadata.py
+*.npy
+*.npz
+*.parquet
+/.cache/kagglehub/
 
 # ==============================================================================
 # CHECKPOINTS & MODEL WEIGHTS

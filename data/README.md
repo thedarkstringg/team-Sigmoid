@@ -1,57 +1,34 @@
-# CARE Farm A Data Contract
+# CARE data contracts
 
-Raw CARE Farm A CSV files and generated NumPy arrays are not tracked by Git.
+Raw CARE CSVs, generated NumPy arrays, Parquet metadata, scalers, and model
+files are not tracked by Git. See `SERVER_RUNBOOK.md` for the server commands.
 
-## Sequence export
+## Strict cross-farm physical export
 
-Run:
+Farm C is the training/source domain. Its output is:
 
-    python src/data/export_sequences.py \
-      --raw-dir /path/to/CARE_Farm_A \
-      --output-dir data/processed/CARE_Farm_A/sequences
+```text
+data/processed/CARE_Farm_C/sequences/
+  train_X.npy  train_y.npy  train_mask.npy  train_metadata.parquet
+  val_X.npy    val_y.npy    val_mask.npy    val_metadata.parquet
+  test_X.npy   test_y.npy   test_mask.npy   test_metadata.parquet
+  scaler_stats.npz
+  export_summary.json
+```
 
-Validate:
+External Farm A/B outputs contain the same `test_*` files under
+`physical_sequences/`. All three use the exact ten-feature order in
+`artifacts/data/physical_feature_manifest.csv`. The Farm C scaler is fit on
+valid training timesteps only and reused unchanged everywhere else.
 
-    python src/data/validate_sequences.py \
-      --data-dir data/processed/CARE_Farm_A/sequences
+Sequences have 144 ten-minute timesteps, a 24-hour lookback, one-hour stride,
+and per-timestep labels for a 48-hour early-fault horizon. The timestep mask is
+one only for observed, physically valid feature rows.
 
-## Sequence definition
+## Legacy Farm A export
 
-- 54 average SCADA channels
-- 10-minute SCADA resolution
-- 24-hour lookback
-- 144 timesteps per sequence
-- 1-hour stride
-- 48-hour fault horizon
-
-Asset-disjoint split:
-
-- Train: assets 0, 10, 11
-- Validation: asset 21
-- Test: asset 13
-
-## Generated arrays
-
-For each split:
-
-- `*_X.npy`: `(N, 144, 54)`, float32
-- `*_y.npy`: `(N, 144)`, uint8
-- `*_mask.npy`: `(N, 144)`, uint8
-
-The mask is 1 for real observations and 0 for approved short gap-filled timesteps.
-
-Sequences with less than 95% coverage or an internal timestamp gap greater than 30 minutes are rejected.
-
-## Scaling
-
-Features are standardized using per-feature mean and standard deviation fitted only on real training timesteps.
-
-The same training statistics are applied to validation and test data.
-
-Scaler metadata is saved in `scaler_stats.npz`.
-
-## Class imbalance
-
-The exporter does not resample data.
-
-The GRU training code computes positive-class weighting from the training split only and ignores masked timesteps.
+The old Farm A arrays remain a separate 54-channel contract under
+`data/processed/CARE_Farm_A/sequences`. They can receive aligned per-timestep
+metadata through `src/data/reconstruct_farm_a_metadata.py`; the utility does
+not regenerate their `X` arrays and fails unless it reproduces their y/mask
+ordering exactly.
