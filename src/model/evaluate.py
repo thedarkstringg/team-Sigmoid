@@ -52,17 +52,32 @@ def evaluate(model, x, y, mask, device, threshold=0.5, batch_size=64):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, default="checkpoints/best.pt")
-    parser.add_argument("--data_dir", type=str, default="data/processed/CARE_Farm_A/sequences")
-    parser.add_argument("--hidden_size", type=int, default=64)
-    parser.add_argument("--dropout", type=float, default=0.0,
+    parser.add_argument("--data_dir", type=str,
+                         default="data/processed/CARE_Farm_C/sequences",
+                         help="point this at a DIFFERENT farm's exported sequences "
+                              "(e.g. CARE_Farm_A/sequences) to run the cross-farm "
+                              "generalization study - the model architecture is "
+                              "farm-agnostic by design as long as the subsystem "
+                              "feature count matches what the checkpoint was trained on.")
+    parser.add_argument("--hidden_size", type=int, default=32)
+    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--dropout", type=float, default=0.3,
                          help="must match the dropout used when this checkpoint was trained")
     parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size,
-                               dropout=args.dropout).to(device)
+    # infer input_size from the actual data being evaluated, rather than
+    # hardcoding it - if this doesn't match the checkpoint's trained size,
+    # load_state_dict below will fail loudly with a clear shape mismatch,
+    # which is the correct, informative failure mode here.
+    probe_x = np.load(f"{args.data_dir}/val_X.npy")
+    inferred_input_size = probe_x.shape[-1]
+    print(f"Inferred input_size={inferred_input_size} from {args.data_dir}/val_X.npy")
+
+    model = TemporalRiskModel(input_size=inferred_input_size, hidden_size=args.hidden_size,
+                               num_layers=args.num_layers, dropout=args.dropout).to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     print(f"Loaded checkpoint from epoch {checkpoint['epoch']}, "

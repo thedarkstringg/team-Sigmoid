@@ -37,7 +37,7 @@ def set_seed(seed: int):
 # Replace this function's body with the real loader. Keep the same
 # return signature (train_loader, val_loader) so nothing downstream breaks.
 # ---------------------------------------------------------------------------
-def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=54,
+def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=5,
                              n_train=256, n_val=64):
     x_train = torch.randn(n_train, seq_len, num_features)
     y_train = torch.randint(0, 2, (n_train, seq_len)).float()
@@ -53,13 +53,17 @@ def build_dummy_dataloaders(batch_size=32, seq_len=144, num_features=54,
     return train_loader, val_loader
 
 
-def build_real_dataloaders(data_dir="data/processed/CARE_Farm_A/sequences",
+def build_real_dataloaders(data_dir="data/processed/CARE_Farm_C/sequences",
                             batch_size=32):
     """
     Loads Ismayil's exported .npy files per the agreed contract:
-      train_X.npy (N,144,54) float32, train_y.npy (N,144) uint8,
+      train_X.npy (N,144,F) float32, train_y.npy (N,144) uint8,
       train_mask.npy (N,144) - 1=real observation, 0=gap-filled timestep.
-      Same for val_/test_.
+      F = number of physical subsystem feature vectors (power residual,
+      thermal deltas, kinematic ratio, vibration index, etc.) - this count
+      is farm-agnostic by design, so the same trained model can be evaluated
+      directly on a different farm's exported sequences for the
+      generalization study. Same file layout for val_/test_.
     """
     def _load_split(split):
         x = np.load(os.path.join(data_dir, f"{split}_X.npy"))
@@ -171,8 +175,9 @@ def main():
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--grad_accum_steps", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--hidden_size", type=int, default=64)
-    parser.add_argument("--dropout", type=float, default=0.0,
+    parser.add_argument("--hidden_size", type=int, default=32)
+    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--dropout", type=float, default=0.3,
                          help="dropout between GRU layers and before final projection")
     parser.add_argument("--patience", type=int, default=5,
                          help="early stopping patience, in epochs")
@@ -181,9 +186,9 @@ def main():
     parser.add_argument("--resume", action="store_true",
                          help="resume from checkpoint_dir/last.pt if present")
     parser.add_argument("--use_real_data", action="store_true",
-                         help="load real Farm A sequences instead of dummy data")
+                         help="load real sequences instead of dummy data")
     parser.add_argument("--data_dir", type=str,
-                         default="data/processed/CARE_Farm_A/sequences")
+                         default="data/processed/CARE_Farm_C/sequences")
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -207,8 +212,16 @@ def main():
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
 
     # --- Model / optimizer ---
-    model = TemporalRiskModel(input_size=54, hidden_size=args.hidden_size,
-                               dropout=args.dropout).to(device)
+    # input_size is inferred from the actual loaded data, not hardcoded -
+    # the exact subsystem-vector count is decided by the data pipeline
+    # (Ismayil), and may differ across iterations as feature coverage is
+    # confirmed per farm via the sensor description file.
+    sample_x, _, _ = next(iter(train_loader))
+    inferred_input_size = sample_x.shape[-1]
+    print(f"Inferred input_size={inferred_input_size} from loaded data")
+
+    model = TemporalRiskModel(input_size=inferred_input_size, hidden_size=args.hidden_size,
+                               num_layers=args.num_layers, dropout=args.dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler(device.type, enabled=(device.type == "cuda"))
 

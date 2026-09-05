@@ -11,7 +11,15 @@ class TemporalRiskModel(nn.Module):
             for actual probabilities during inference/eval)
     """
 
-    def __init__(self, input_size=54, hidden_size=64, num_layers=2, dropout=0.0):
+    def __init__(self, input_size, hidden_size=32, num_layers=2, dropout=0.3):
+        """
+        input_size: number of physical subsystem feature vectors per timestep
+        (e.g. power residual, thermal deltas, kinematic ratio, vibration index,
+        and any others Ismayil's feature engineering identifies as reliably
+        computable across all farms via the sensor description file). This is
+        NOT fixed at a specific count - it depends on what the data pipeline
+        actually builds, so it must be passed explicitly, not assumed.
+        """
         super().__init__()
         self.gru = nn.GRU(
             input_size=input_size,
