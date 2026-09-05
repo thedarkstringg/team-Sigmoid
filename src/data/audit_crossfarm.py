@@ -19,6 +19,7 @@ try:
         required_sensor_ids,
         resolve_average_columns,
     )
+    from src.data.sequence_utils import read_care_csv
 except ModuleNotFoundError:  # Support direct script invocation from repo root.
     from physical_features import (
         compute_physical_features,
@@ -27,6 +28,7 @@ except ModuleNotFoundError:  # Support direct script invocation from repo root.
         required_sensor_ids,
         resolve_average_columns,
     )
+    from sequence_utils import read_care_csv
 
 
 def max_zero_run(values: pd.Series) -> int:
@@ -54,7 +56,7 @@ def main() -> None:
     args = parser.parse_args()
     config = load_mapping(args.config)
     sensors = required_sensor_ids(config, args.farm)
-    event_info = pd.read_csv(args.raw_dir / "comma_event_info.csv")
+    event_info = read_care_csv(args.raw_dir / "comma_event_info.csv")
     raw_stats: dict[str, dict[str, Any]] = {
         sensor: {"count": 0, "missing": 0, "nonfinite": 0, "zeros": 0, "negative": 0, "min": np.inf, "max": -np.inf, "samples": []}
         for sensor in sensors
@@ -71,14 +73,14 @@ def main() -> None:
         if not path.exists():
             availability_failures.append({"event_id": event_id, "reason": "missing event file"})
             continue
-        header = pd.read_csv(path, nrows=0).columns.tolist()
+        header = read_care_csv(path, nrows=0).columns.tolist()
         try:
             resolved = resolve_average_columns(header, sensors)
         except ValueError as exc:
             availability_failures.append({"event_id": event_id, "reason": str(exc)})
             continue
         usecols = ["time_stamp"] + (["asset_id"] if "asset_id" in header else []) + list(resolved.values())
-        frame = pd.read_csv(path, usecols=usecols)
+        frame = read_care_csv(path, usecols=usecols)
         timestamp = pd.to_datetime(frame["time_stamp"], errors="coerce")
         valid_time = timestamp.dropna().sort_values()
         diffs = valid_time.diff().dropna()

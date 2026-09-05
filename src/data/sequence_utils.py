@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +19,27 @@ STRIDE_HOURS = 1
 SEQ_LEN = 144
 MIN_COVERAGE = 0.95
 MAX_GAP_MINUTES = 30
+
+
+def detect_care_delimiter(path: str | Path) -> str:
+    """Detect the delimiter in a CARE CSV header."""
+    csv_path = Path(path)
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        header = handle.readline()
+    if not header:
+        raise ValueError(f"Cannot detect a delimiter in empty CARE CSV: {csv_path}")
+    try:
+        return csv.Sniffer().sniff(header, delimiters=",;\t").delimiter
+    except csv.Error as exc:
+        raise ValueError(
+            f"Could not detect a comma, semicolon, or tab delimiter in CARE CSV: {csv_path}"
+        ) from exc
+
+
+def read_care_csv(path: str | Path, **kwargs: Any) -> pd.DataFrame:
+    """Read a CARE CSV using the delimiter detected from its header."""
+    separator = detect_care_delimiter(path)
+    return pd.read_csv(path, sep=separator, **kwargs)
 
 
 def timestep_labels(index: pd.DatetimeIndex, event_label: str, event_end: pd.Timestamp) -> np.ndarray:

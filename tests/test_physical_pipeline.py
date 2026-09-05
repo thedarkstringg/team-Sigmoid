@@ -24,13 +24,58 @@ from src.data.sequence_utils import (
     SEQ_LEN,
     apply_scaler,
     build_timestep_metadata,
+    detect_care_delimiter,
     fit_train_scaler,
     load_scaler,
+    read_care_csv,
     save_scaler,
 )
 
 
 CONFIG_PATH = Path("configs/physical_sensor_mapping.yaml")
+
+
+class CareCsvReaderTests(unittest.TestCase):
+    def test_comma_and_semicolon_files_expose_the_same_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            comma_path = root / "comma.csv"
+            semicolon_path = root / "semicolon.csv"
+            comma_path.write_text("event_id,asset_id,value\n1,A,10\n2,B,20\n", encoding="utf-8")
+            semicolon_path.write_text(
+                "event_id;asset_id;value\n1;A;10\n2;B;20\n", encoding="utf-8"
+            )
+
+            self.assertEqual(detect_care_delimiter(comma_path), ",")
+            self.assertEqual(detect_care_delimiter(semicolon_path), ";")
+            comma = read_care_csv(comma_path)
+            semicolon = read_care_csv(semicolon_path)
+
+            self.assertEqual(comma.columns.tolist(), ["event_id", "asset_id", "value"])
+            self.assertEqual(semicolon.columns.tolist(), comma.columns.tolist())
+            pd.testing.assert_frame_equal(semicolon, comma)
+
+    def test_tab_delimiter_and_nrows_are_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tab.csv"
+            path.write_text("event_id\tasset_id\tvalue\n1\tA\t10\n2\tB\t20\n", encoding="utf-8")
+
+            self.assertEqual(detect_care_delimiter(path), "\t")
+            frame = read_care_csv(path, nrows=1)
+
+            self.assertEqual(len(frame), 1)
+            self.assertEqual(frame.iloc[0].to_dict(), {"event_id": 1, "asset_id": "A", "value": 10})
+
+    def test_usecols_is_forwarded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "semicolon.csv"
+            path.write_text(
+                "event_id;asset_id;value\n1;A;10\n2;B;20\n", encoding="utf-8"
+            )
+
+            frame = read_care_csv(path, usecols=["asset_id", "value"])
+
+            self.assertEqual(frame.columns.tolist(), ["asset_id", "value"])
 
 
 class PhysicalFormulaTests(unittest.TestCase):
