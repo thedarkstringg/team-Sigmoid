@@ -490,6 +490,25 @@ class MetadataAndLeakageTests(unittest.TestCase):
         np.testing.assert_allclose(std, [1.0, 10.0])
         np.testing.assert_allclose(apply_scaler(external, mean, std), [[[98.0, 18.0]]])
 
+    def test_scaler_statistics_avoid_float32_accumulation_error(self):
+        valid_count = 100_000
+        train = np.empty((1_001, 100, 1), dtype=np.float32)
+        train[:500, :, 0] = 1_000_000.0 - 1.0
+        train[500:1_000, :, 0] = 1_000_000.0 + 1.0
+        train[1_000, :, 0] = 0.0
+        mask = np.ones(train.shape[:2], dtype=np.uint8)
+        mask[1_000, :] = 0
+
+        mean, std = fit_train_scaler(train, mask)
+        scaled = apply_scaler(train, mean, std)
+        valid = scaled.reshape(-1, 1)[mask.reshape(-1).astype(bool)]
+
+        self.assertEqual(valid.shape[0], valid_count)
+        self.assertEqual(mean.dtype, np.float32)
+        self.assertEqual(std.dtype, np.float32)
+        np.testing.assert_allclose(valid.mean(axis=0), 0.0, atol=2e-4)
+        np.testing.assert_allclose(valid.std(axis=0), 1.0, atol=2e-4)
+
     def test_scaler_provenance_and_order_are_enforced(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "scaler.npz"

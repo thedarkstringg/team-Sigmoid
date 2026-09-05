@@ -230,12 +230,13 @@ def fit_train_scaler(train_x: np.ndarray, train_mask: np.ndarray) -> tuple[np.nd
     real = train_x.reshape(-1, train_x.shape[-1])[train_mask.reshape(-1).astype(bool)]
     if not len(real):
         raise ValueError("Cannot fit scaler without valid Farm C train timesteps")
-    mean = real.mean(axis=0).astype(np.float32)
-    std = real.std(axis=0).astype(np.float32)
+    real = real.astype(np.float64)
+    mean = real.mean(axis=0)
+    std = real.std(axis=0)
     if not np.isfinite(mean).all() or not np.isfinite(std).all():
         raise ValueError("Non-finite Farm C train scaler statistics")
     std[std < 1.0e-6] = 1.0
-    return mean, std
+    return mean.astype(np.float32), std.astype(np.float32)
 
 
 def apply_scaler(x: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
