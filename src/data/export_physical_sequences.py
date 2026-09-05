@@ -19,7 +19,7 @@ try:
         HORIZON_HOURS, INTERVAL_MINUTES, LOOKBACK_HOURS, MAX_GAP_MINUTES,
         MIN_COVERAGE, SEQ_LEN, STRIDE_HOURS, apply_scaler, build_timestep_metadata,
         fit_train_scaler, load_passing_frequency_audit, load_scaler, save_scaler,
-        sha256_file, timestep_labels,
+        read_care_csv, resolve_event_boundaries, sha256_file, timestep_labels,
     )
 except ModuleNotFoundError:  # Support direct script invocation from repo root.
     from physical_features import (
@@ -30,7 +30,7 @@ except ModuleNotFoundError:  # Support direct script invocation from repo root.
         HORIZON_HOURS, INTERVAL_MINUTES, LOOKBACK_HOURS, MAX_GAP_MINUTES,
         MIN_COVERAGE, SEQ_LEN, STRIDE_HOURS, apply_scaler, build_timestep_metadata,
         fit_train_scaler, load_passing_frequency_audit, load_scaler, save_scaler,
-        sha256_file, timestep_labels,
+        read_care_csv, resolve_event_boundaries, sha256_file, timestep_labels,
     )
 
 
@@ -54,13 +54,13 @@ def load_split_config(path: Path) -> tuple[dict[str, str], dict[str, Any]]:
 def read_event_raw(
     path: Path, sensor_ids: list[str]
 ) -> tuple[pd.DataFrame, dict[str, str]]:
-    header = pd.read_csv(path, nrows=0).columns.tolist()
+    header = read_care_csv(path, nrows=0).columns.tolist()
     resolved = resolve_average_columns(header, sensor_ids)
     required = ["time_stamp", "asset_id"]
     missing = set(required) - set(header)
     if missing:
         raise ValueError(f"{path} misses required columns: {sorted(missing)}")
-    frame = pd.read_csv(path, usecols=required + list(resolved.values()))
+    frame = read_care_csv(path, usecols=required + list(resolved.values()))
     frame["time_stamp"] = pd.to_datetime(frame["time_stamp"], errors="coerce")
     frame = (
         frame.dropna(subset=["time_stamp"])
@@ -81,7 +81,7 @@ def event_asset(frame: pd.DataFrame, event_id: int) -> Any:
 
 
 def read_asset_only(path: Path, event_id: int) -> Any:
-    values = pd.read_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
+    values = read_care_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
     if len(values) != 1:
         raise ValueError(f"Event {event_id} does not contain exactly one asset: {values}")
     return values[0]
@@ -100,14 +100,14 @@ def collect_power_curve_data(
     normal = event_info[event_info["event_label"] == "normal"].sort_values("event_id")
     for row in normal.itertuples(index=False):
         path = raw_dir / f"comma_{int(row.event_id)}.csv"
-        header = pd.read_csv(path, nrows=0).columns.tolist()
+        header = read_care_csv(path, nrows=0).columns.tolist()
         if "train_test" not in header:
             raise ValueError(
                 f"{path} has no train_test column; refusing to fit a power curve "
                 "without proving TRAIN-row scope"
             )
         resolved = resolve_average_columns(header, sensors)
-        frame = pd.read_csv(
+        frame = read_care_csv(
             path,
             usecols=["asset_id", "train_test"] + list(resolved.values()),
         )
@@ -193,8 +193,9 @@ def build_event_sequences(
 ) -> list[dict[str, Any]]:
     event_id = int(event_row.event_id)
     event_label = str(event_row.event_label)
-    event_start = pd.Timestamp(event_row.event_start)
-    event_end = pd.Timestamp(event_row.event_end)
+    boundaries = resolve_event_boundaries(raw_path, event_row, farm)
+    event_start = boundaries.event_start
+    event_end = boundaries.event_end
     raw, _ = read_event_raw(raw_path, sensor_ids)
     asset_id = event_asset(raw, event_id)
     physical, feature_valid = compute_physical_features(
@@ -376,9 +377,10 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     config = load_mapping(args.config)
     load_passing_frequency_audit(args.audit_report, args.farm)
-    event_info = pd.read_csv(args.raw_dir / "comma_event_info.csv")
-    event_info["event_start"] = pd.to_datetime(event_info["event_start"])
-    event_info["event_end"] = pd.to_datetime(event_info["event_end"])
+    event_info = read_care_csv(args.raw_dir / "comma_event_info.csv")
+    if args.farm in {"A", "B"}:
+        event_info["event_start"] = pd.to_datetime(event_info["event_start"])
+        event_info["event_end"] = pd.to_datetime(event_info["event_end"])
     split_payload = None
     if args.farm == "C":
         if args.split_config is None:

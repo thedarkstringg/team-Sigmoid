@@ -19,6 +19,7 @@ try:
         required_sensor_ids,
         resolve_average_columns,
     )
+    from src.data.sequence_utils import read_care_csv, resolve_event_boundaries
 except ModuleNotFoundError:  # Support direct script invocation from repo root.
     from physical_features import (
         compute_physical_features,
@@ -27,6 +28,73 @@ except ModuleNotFoundError:  # Support direct script invocation from repo root.
         required_sensor_ids,
         resolve_average_columns,
     )
+    from sequence_utils import read_care_csv, resolve_event_boundaries
+
+
+def _metadata_timestamp_matches(value: Any, resolved: pd.Timestamp) -> bool:
+    try:
+        parsed = pd.to_datetime(value, errors="coerce")
+        if not isinstance(parsed, pd.Timestamp):
+            parsed = pd.Timestamp(parsed)
+        return bool(not pd.isna(parsed) and parsed == resolved)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def audit_farm_c_temporal_boundaries(
+    raw_dir: Path, event_info: pd.DataFrame
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Validate Farm C row-ID boundaries and separately report metadata drift."""
+
+    checks = []
+    failures = []
+    metadata_mismatches = []
+    for event_row in event_info.sort_values("event_id").itertuples(index=False):
+        event_id = int(event_row.event_id)
+        raw_path = raw_dir / f"comma_{event_id}.csv"
+        try:
+            boundaries = resolve_event_boundaries(raw_path, event_row, "C")
+        except (OSError, ValueError) as exc:
+            failure = {"event_id": event_id, "valid": False, "reason": str(exc)}
+            checks.append(failure)
+            failures.append(failure)
+            continue
+
+        check = {
+            "event_id": event_id,
+            "valid": True,
+            "source": boundaries.source,
+            "event_start_id": boundaries.event_start_id,
+            "event_end_id": boundaries.event_end_id,
+            "resolved_event_start": str(boundaries.event_start),
+            "resolved_event_end": str(boundaries.event_end),
+            "start_train_test": boundaries.start_train_test,
+            "end_train_test": boundaries.end_train_test,
+        }
+        checks.append(check)
+        field_mismatches = []
+        for field, metadata_value, resolved in (
+            ("event_start", boundaries.metadata_event_start, boundaries.event_start),
+            ("event_end", boundaries.metadata_event_end, boundaries.event_end),
+        ):
+            if not _metadata_timestamp_matches(metadata_value, resolved):
+                field_mismatches.append(
+                    {
+                        "field": field,
+                        "metadata_value": str(metadata_value),
+                        "id_derived_value": str(resolved),
+                    }
+                )
+        if field_mismatches:
+            metadata_mismatches.append(
+                {
+                    "event_id": event_id,
+                    "classification": "metadata_mismatch",
+                    "raw_boundary_valid": True,
+                    "mismatches": field_mismatches,
+                }
+            )
+    return checks, failures, metadata_mismatches
 
 
 def max_zero_run(values: pd.Series) -> int:
@@ -54,7 +122,13 @@ def main() -> None:
     args = parser.parse_args()
     config = load_mapping(args.config)
     sensors = required_sensor_ids(config, args.farm)
-    event_info = pd.read_csv(args.raw_dir / "comma_event_info.csv")
+    event_info = read_care_csv(args.raw_dir / "comma_event_info.csv")
+    if args.farm == "C":
+        temporal_checks, temporal_failures, metadata_mismatches = (
+            audit_farm_c_temporal_boundaries(args.raw_dir, event_info)
+        )
+    else:
+        temporal_checks, temporal_failures, metadata_mismatches = [], [], []
     raw_stats: dict[str, dict[str, Any]] = {
         sensor: {"count": 0, "missing": 0, "nonfinite": 0, "zeros": 0, "negative": 0, "min": np.inf, "max": -np.inf, "samples": []}
         for sensor in sensors
@@ -71,14 +145,14 @@ def main() -> None:
         if not path.exists():
             availability_failures.append({"event_id": event_id, "reason": "missing event file"})
             continue
-        header = pd.read_csv(path, nrows=0).columns.tolist()
+        header = read_care_csv(path, nrows=0).columns.tolist()
         try:
             resolved = resolve_average_columns(header, sensors)
         except ValueError as exc:
             availability_failures.append({"event_id": event_id, "reason": str(exc)})
             continue
         usecols = ["time_stamp"] + (["asset_id"] if "asset_id" in header else []) + list(resolved.values())
-        frame = pd.read_csv(path, usecols=usecols)
+        frame = read_care_csv(path, usecols=usecols)
         timestamp = pd.to_datetime(frame["time_stamp"], errors="coerce")
         valid_time = timestamp.dropna().sort_values()
         diffs = valid_time.diff().dropna()
@@ -167,6 +241,9 @@ def main() -> None:
         "events_expected": len(event_info),
         "events_audited": len(continuity),
         "feature_availability_failures": availability_failures,
+        "temporal_boundary_checks": temporal_checks,
+        "temporal_boundary_failures": temporal_failures,
+        "metadata_timestamp_mismatches": metadata_mismatches,
         "timestamp_continuity": continuity,
         "raw_channel_summary": raw_report,
         "suspicious_zero_runs": zero_runs,
@@ -195,7 +272,9 @@ def main() -> None:
             "allowed_median_error_hz": tolerance,
             "passed": frequency_passed,
         },
-        "strict_export_ready": not availability_failures and frequency_passed,
+        "strict_export_ready": (
+            not availability_failures and not temporal_failures and frequency_passed
+        ),
         "limitations": [
             "Zero is reported rather than globally treated as missing because several selected channels legitimately reach zero.",
             "Sample quantiles are deterministic diagnostics, not full-distribution estimates.",
@@ -208,6 +287,8 @@ def main() -> None:
         "farm": args.farm,
         "events_audited": len(continuity),
         "availability_failures": len(availability_failures),
+        "temporal_boundary_failures": len(temporal_failures),
+        "metadata_timestamp_mismatches": len(metadata_mismatches),
         "frequency_validation": report["frequency_validation"],
         "strict_export_ready": report["strict_export_ready"],
         "output": str(args.output),

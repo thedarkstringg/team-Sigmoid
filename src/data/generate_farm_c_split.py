@@ -10,6 +10,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+try:
+    from src.data.sequence_utils import read_care_csv
+except ModuleNotFoundError:  # Support direct script invocation from repo root.
+    from sequence_utils import read_care_csv
+
 
 def event_assets(raw_dir: Path, event_info: pd.DataFrame) -> dict[int, str]:
     result: dict[int, str] = {}
@@ -17,7 +22,7 @@ def event_assets(raw_dir: Path, event_info: pd.DataFrame) -> dict[int, str]:
         path = raw_dir / f"comma_{event_id}.csv"
         if not path.exists():
             raise FileNotFoundError(path)
-        values = pd.read_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
+        values = read_care_csv(path, usecols=["asset_id"])["asset_id"].dropna().unique()
         if len(values) != 1:
             raise ValueError(f"Event {event_id} does not prove one asset_id: {values}")
         result[event_id] = str(values[0])
@@ -68,7 +73,7 @@ def main() -> None:
     parser.add_argument("--trials", type=int, default=20000)
     args = parser.parse_args()
     info_path = args.raw_dir / "comma_event_info.csv"
-    events = pd.read_csv(info_path)
+    events = read_care_csv(info_path)
     asset_by_event = event_assets(args.raw_dir, events)
     events["asset_id"] = events["event_id"].astype(int).map(asset_by_event)
     assets = sorted(events["asset_id"].unique())

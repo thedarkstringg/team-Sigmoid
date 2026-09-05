@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from argparse import Namespace
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 
+from src.data import audit_crossfarm
 from src.data.build_physical_manifest import build_manifest
-from src.data.export_physical_sequences import prepare_power_curve
+from src.data.audit_crossfarm import audit_farm_c_temporal_boundaries
+from src.data.export_physical_sequences import build_event_sequences, prepare_power_curve
 from src.data.physical_features import (
     compute_physical_features,
     fit_binned_power_curve,
@@ -24,13 +28,301 @@ from src.data.sequence_utils import (
     SEQ_LEN,
     apply_scaler,
     build_timestep_metadata,
+    detect_care_delimiter,
     fit_train_scaler,
     load_scaler,
+    read_care_csv,
+    resolve_event_boundaries,
     save_scaler,
 )
 
 
 CONFIG_PATH = Path("configs/physical_sensor_mapping.yaml")
+
+
+class CareCsvReaderTests(unittest.TestCase):
+    def test_comma_and_semicolon_files_expose_the_same_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            comma_path = root / "comma.csv"
+            semicolon_path = root / "semicolon.csv"
+            comma_path.write_text("event_id,asset_id,value\n1,A,10\n2,B,20\n", encoding="utf-8")
+            semicolon_path.write_text(
+                "event_id;asset_id;value\n1;A;10\n2;B;20\n", encoding="utf-8"
+            )
+
+            self.assertEqual(detect_care_delimiter(comma_path), ",")
+            self.assertEqual(detect_care_delimiter(semicolon_path), ";")
+            comma = read_care_csv(comma_path)
+            semicolon = read_care_csv(semicolon_path)
+
+            self.assertEqual(comma.columns.tolist(), ["event_id", "asset_id", "value"])
+            self.assertEqual(semicolon.columns.tolist(), comma.columns.tolist())
+            pd.testing.assert_frame_equal(semicolon, comma)
+
+    def test_tab_delimiter_and_nrows_are_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "tab.csv"
+            path.write_text("event_id\tasset_id\tvalue\n1\tA\t10\n2\tB\t20\n", encoding="utf-8")
+
+            self.assertEqual(detect_care_delimiter(path), "\t")
+            frame = read_care_csv(path, nrows=1)
+
+            self.assertEqual(len(frame), 1)
+            self.assertEqual(frame.iloc[0].to_dict(), {"event_id": 1, "asset_id": "A", "value": 10})
+
+    def test_usecols_is_forwarded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "semicolon.csv"
+            path.write_text(
+                "event_id;asset_id;value\n1;A;10\n2;B;20\n", encoding="utf-8"
+            )
+
+            frame = read_care_csv(path, usecols=["asset_id", "value"])
+
+            self.assertEqual(frame.columns.tolist(), ["asset_id", "value"])
+
+
+class EventBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def write_raw(path: Path, timestamps, train_test) -> None:
+        pd.DataFrame(
+            {"time_stamp": timestamps, "train_test": train_test, "asset_id": 7}
+        ).to_csv(path, index=False)
+
+    def test_farm_c_resolves_integer_like_ids_from_original_row_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_4.csv"
+            self.write_raw(
+                path,
+                ["2024-01-10", "2023-07-31 10:00:00", "2023-08-19 10:00:00"],
+                ["train", " Prediction ", "PREDICTION"],
+            )
+            event = {
+                "event_start": "2020-01-01",
+                "event_end": "2020-01-02",
+                "event_start_id": "1.0",
+                "event_end_id": 2.0,
+            }
+
+            boundaries = resolve_event_boundaries(path, event, "C")
+
+            self.assertEqual(boundaries.event_start, pd.Timestamp("2023-07-31 10:00:00"))
+            self.assertEqual(boundaries.event_end, pd.Timestamp("2023-08-19 10:00:00"))
+            self.assertEqual(boundaries.source, "raw_row_ids")
+
+    def test_corrupt_farm_c_metadata_does_not_override_valid_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "comma_11.csv"
+            self.write_raw(
+                path,
+                ["2023-10-17 12:30:00", "2023-11-08 10:30:00"],
+                ["prediction", "prediction"],
+            )
+            event_info = pd.DataFrame(
+                [
+                    {
+                        "event_id": 11,
+                        "event_start": "not-a-timestamp",
+                        "event_end": "1900-01-01",
+                        "event_start_id": 0,
+                        "event_end_id": 1,
+                    }
+                ]
+            )
+
+            boundaries = resolve_event_boundaries(path, event_info.iloc[0], "C")
+            checks, failures, mismatches = audit_farm_c_temporal_boundaries(root, event_info)
+
+            self.assertEqual(boundaries.event_end, pd.Timestamp("2023-11-08 10:30:00"))
+            self.assertTrue(checks[0]["valid"])
+            self.assertEqual(failures, [])
+            self.assertEqual(mismatches[0]["classification"], "metadata_mismatch")
+            self.assertTrue(mismatches[0]["raw_boundary_valid"])
+            self.assertEqual(
+                {item["field"] for item in mismatches[0]["mismatches"]},
+                {"event_start", "event_end"},
+            )
+
+    def test_farm_c_out_of_range_id_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_70.csv"
+            self.write_raw(path, ["2023-11-10", "2023-11-30"], ["prediction"] * 2)
+            event = {
+                "event_start": "ignored",
+                "event_end": "ignored",
+                "event_start_id": 0,
+                "event_end_id": 2,
+            }
+
+            with self.assertRaisesRegex(ValueError, "event_end_id=2 is out of range"):
+                resolve_event_boundaries(path, event, "C")
+
+    def test_farm_c_missing_non_integer_and_reversed_ids_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_70.csv"
+            self.write_raw(path, ["2023-11-10", "2023-11-30"], ["prediction"] * 2)
+            base = {
+                "event_start": "ignored",
+                "event_end": "ignored",
+                "event_start_id": 0,
+                "event_end_id": 1,
+            }
+            cases = [
+                ({key: value for key, value in base.items() if key != "event_start_id"}, "missing event_start_id"),
+                ({**base, "event_start_id": 0.5}, "event_start_id must be an integer-like"),
+                ({**base, "event_start_id": 1, "event_end_id": 0}, "is greater than"),
+            ]
+
+            for event, message in cases:
+                with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                    resolve_event_boundaries(path, event, "C")
+
+    def test_farm_c_invalid_or_reversed_resolved_timestamps_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_70.csv"
+            event = {
+                "event_start_id": 0,
+                "event_end_id": 1,
+            }
+            cases = [
+                (["invalid", "2023-11-30"], "does not contain a valid timestamp"),
+                (["2023-12-01", "2023-11-30"], "is after event_end"),
+            ]
+
+            for timestamps, message in cases:
+                with self.subTest(message=message):
+                    self.write_raw(path, timestamps, ["prediction"] * 2)
+                    with self.assertRaisesRegex(ValueError, message):
+                        resolve_event_boundaries(path, event, "C")
+
+    def test_farm_c_non_prediction_boundary_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_70.csv"
+            self.write_raw(path, ["2023-11-10", "2023-11-30"], ["train", "prediction"])
+            event = {
+                "event_start": "ignored",
+                "event_end": "ignored",
+                "event_start_id": 0,
+                "event_end_id": 1,
+            }
+
+            with self.assertRaisesRegex(ValueError, "both have train_test=prediction"):
+                resolve_event_boundaries(path, event, "C")
+
+    def test_farm_a_and_b_continue_to_use_metadata_timestamps(self):
+        event = {"event_start": "2024-02-01 01:00", "event_end": "2024-02-02 02:00"}
+        missing_raw = Path("raw-file-is-not-consulted-for-external-farms.csv")
+
+        for farm in ("A", "B"):
+            with self.subTest(farm=farm):
+                boundaries = resolve_event_boundaries(missing_raw, event, farm)
+                self.assertEqual(boundaries.event_start, pd.Timestamp(event["event_start"]))
+                self.assertEqual(boundaries.event_end, pd.Timestamp(event["event_end"]))
+                self.assertEqual(boundaries.source, "event_metadata")
+
+    def test_sequence_labels_and_fault_time_use_resolved_farm_c_end(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_4.csv"
+            timestamps = pd.date_range("2024-01-01", periods=151, freq="10min")
+            self.write_raw(path, timestamps, ["prediction"] * len(timestamps))
+            event = pd.Series(
+                {
+                    "event_id": 4,
+                    "event_label": "anomaly",
+                    "event_start": "2030-01-01",
+                    "event_end": "2023-01-01",
+                    "event_start_id": 144,
+                    "event_end_id": 150,
+                }
+            )
+
+            def fake_features(raw, farm, config, **kwargs):
+                features = pd.DataFrame({"feature": 1.0}, index=raw.index)
+                valid = pd.DataFrame({"feature": True}, index=raw.index)
+                return features, valid
+
+            with patch(
+                "src.data.export_physical_sequences.compute_physical_features",
+                side_effect=fake_features,
+            ):
+                sequences = build_event_sequences(
+                    raw_path=path,
+                    event_row=event,
+                    farm="C",
+                    split="train",
+                    config={},
+                    sensor_ids=[],
+                    power_curve=None,
+                )
+
+            self.assertEqual(len(sequences), 1)
+            sequence = sequences[0]
+            resolved_end = timestamps[150]
+            self.assertEqual(sequence["event_end"], resolved_end)
+            self.assertTrue(sequence["y"].all())
+            metadata = build_timestep_metadata(
+                farm="C",
+                split="train",
+                sequence_idx=0,
+                index=sequence["index"],
+                asset_id=sequence["asset_id"],
+                event_id=sequence["event_id"],
+                event_label=sequence["event_label"],
+                event_end=sequence["event_end"],
+                labels=sequence["y"],
+                mask=sequence["mask"],
+            )
+            self.assertTrue((metadata["fault_time"] == resolved_end).all())
+            self.assertTrue(metadata["label"].all())
+
+    def test_farm_c_audit_is_not_export_ready_when_boundary_ids_are_invalid(self):
+        config = load_mapping(CONFIG_PATH)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "audit.json"
+            pd.DataFrame(
+                [
+                    {
+                        "event_id": 4,
+                        "event_label": "anomaly",
+                        "event_start": "bad metadata",
+                        "event_end": "bad metadata",
+                        "event_start_id": 0,
+                        "event_end_id": 2,
+                    }
+                ]
+            ).to_csv(root / "comma_event_info.csv", index=False)
+            sensors = required_sensor_ids(config, "C")
+            raw = pd.DataFrame({sensor: [1.0, 1.0] for sensor in sensors})
+            frequency_sensor = config["features"]["grid_frequency_deviation_Hz"]["farms"]["C"][
+                "grid_frequency"
+            ]
+            raw[frequency_sensor] = 50.0
+            raw["time_stamp"] = ["2024-01-01 00:00", "2024-01-01 00:10"]
+            raw["train_test"] = "prediction"
+            raw["asset_id"] = 7
+            raw.to_csv(root / "comma_4.csv", index=False)
+
+            argv = [
+                "audit_crossfarm.py",
+                "--farm",
+                "C",
+                "--raw-dir",
+                str(root),
+                "--config",
+                str(CONFIG_PATH),
+                "--output",
+                str(output),
+            ]
+            with patch("sys.argv", argv):
+                audit_crossfarm.main()
+
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertFalse(report["strict_export_ready"])
+            self.assertEqual(len(report["temporal_boundary_failures"]), 1)
+            self.assertIn("out of range", report["temporal_boundary_failures"][0]["reason"])
 
 
 class PhysicalFormulaTests(unittest.TestCase):
@@ -197,6 +489,25 @@ class MetadataAndLeakageTests(unittest.TestCase):
         np.testing.assert_allclose(mean, [2.0, 20.0])
         np.testing.assert_allclose(std, [1.0, 10.0])
         np.testing.assert_allclose(apply_scaler(external, mean, std), [[[98.0, 18.0]]])
+
+    def test_scaler_statistics_avoid_float32_accumulation_error(self):
+        valid_count = 100_000
+        train = np.empty((1_001, 100, 1), dtype=np.float32)
+        train[:500, :, 0] = 1_000_000.0 - 1.0
+        train[500:1_000, :, 0] = 1_000_000.0 + 1.0
+        train[1_000, :, 0] = 0.0
+        mask = np.ones(train.shape[:2], dtype=np.uint8)
+        mask[1_000, :] = 0
+
+        mean, std = fit_train_scaler(train, mask)
+        scaled = apply_scaler(train, mean, std)
+        valid = scaled.reshape(-1, 1)[mask.reshape(-1).astype(bool)]
+
+        self.assertEqual(valid.shape[0], valid_count)
+        self.assertEqual(mean.dtype, np.float32)
+        self.assertEqual(std.dtype, np.float32)
+        np.testing.assert_allclose(valid.mean(axis=0), 0.0, atol=2e-4)
+        np.testing.assert_allclose(valid.std(axis=0), 1.0, atol=2e-4)
 
     def test_scaler_provenance_and_order_are_enforced(self):
         with tempfile.TemporaryDirectory() as directory:
