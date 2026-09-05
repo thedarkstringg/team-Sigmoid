@@ -15,7 +15,13 @@ strict_feature_order:
 global_validity:
   epsilon: 1.0e-6
   minimum_rotor_speed_rpm: 0.5
-  minimum_apparent_power_kva: 1.0
+  # NOTE (2026-09-05, Ziyad): originally 1.0, calibrated for real kVA units.
+  # Farm C's power_6/reactive_power_122 are on a per-unit (~0-1.2) scale,
+  # not real kVA - the feature_description.csv unit label ("kW") does not
+  # match the actual encoding. Changed to 0.02, derived from observed
+  # q01/q99 raw ranges in the audit report, as a numerical-stability floor
+  # rather than a physical apparent-power threshold.
+  minimum_apparent_power_kva: 0.02
   minimum_mean_current_a: 0.1
   minimum_mean_voltage_v: 1.0
   expected_grid_frequency_hz: 50.0
