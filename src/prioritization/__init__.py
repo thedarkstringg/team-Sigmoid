@@ -12,17 +12,25 @@ from src.prioritization.core import (
     calculate_priority_score,
     validate_prioritization_inputs,
 )
+from src.prioritization.criticality import (
+    CriticalityCalculator,
+    CriticalityConfig,
+    calculate_criticality,
+)
 from src.prioritization.degradation import calculate_degradation_rate
 from src.prioritization.pipeline import PrioritizationPipeline, calculate_priority
 
 __all__ = [
     "AccessCostCalculator",
     "AccessCostConfig",
+    "CriticalityCalculator",
+    "CriticalityConfig",
     "PrioritizationWeights",
     "PriorityCalculator",
     "PrioritizationPipeline",
     "aggregate_predictions",
     "calculate_access_cost",
+    "calculate_criticality",
     "calculate_priority",
     "calculate_priority_score",
     "calculate_degradation_rate",
