@@ -5,7 +5,11 @@ from src.prioritization.access_cost import (
     AccessCostConfig,
     calculate_access_cost,
 )
-from src.prioritization.aggregation import aggregate_predictions
+from src.prioritization.aggregation import (
+    DEFAULT_HORIZON_HOURS,
+    DEFAULT_TIMESTEP_HOURS,
+    aggregate_predictions,
+)
 from src.prioritization.core import (
     PrioritizationWeights,
     PriorityCalculator,
@@ -25,6 +29,8 @@ __all__ = [
     "AccessCostConfig",
     "CriticalityCalculator",
     "CriticalityConfig",
+    "DEFAULT_HORIZON_HOURS",
+    "DEFAULT_TIMESTEP_HOURS",
     "PrioritizationWeights",
     "PriorityCalculator",
     "PrioritizationPipeline",
