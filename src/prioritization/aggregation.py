@@ -61,9 +61,9 @@ def aggregate_predictions(
     resolves to fewer than two samples (``w <= 1``), smoothing has no effect and the input is
     returned unchanged (copied).
 
-    ``timestep_hours`` defaults to the project's 10-minute GRU cadence
-    (``src.prioritization.degradation.DEFAULT_TIMESTEP_HOURS``). Callers working with hourly
-    baseline windows should pass ``timestep_hours=1.0``.
+    ``timestep_hours`` defaults to this module's ``DEFAULT_TIMESTEP_HOURS``,
+    the project's 10-minute GRU cadence. Callers working with hourly baseline
+    windows should pass ``timestep_hours=1.0``.
     """
     values = _validate_probabilities(probabilities)
     horizon_hours = _validate_positive(horizon_hours, "horizon_hours")

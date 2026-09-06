@@ -21,8 +21,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-
 from src.prioritization.aggregation import (
     DEFAULT_HORIZON_HOURS,
     DEFAULT_TIMESTEP_HOURS,
