@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.prioritization.aggregation import aggregate_predictions
 from src.prioritization.core import (
     PrioritizationWeights,
     PriorityCalculator,
@@ -11,6 +12,7 @@ from src.prioritization.degradation import calculate_degradation_rate
 __all__ = [
     "PrioritizationWeights",
     "PriorityCalculator",
+    "aggregate_predictions",
     "calculate_priority_score",
     "calculate_degradation_rate",
     "validate_prioritization_inputs",
