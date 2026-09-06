@@ -73,8 +73,11 @@ def main():
     parser.add_argument("--bidirectional", action="store_true",
                          help="must match whether this checkpoint was trained bidirectionally")
     parser.add_argument("--threshold", type=float, default=0.5)
-    args = parser.parse_args()
+    main_with_args(parser.parse_args())
 
+
+def main_with_args(args):
+    """Run evaluation with an already-populated argparse.Namespace."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # infer input_size from the actual data being evaluated, rather than
