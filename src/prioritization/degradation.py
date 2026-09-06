@@ -69,6 +69,9 @@ def _time_hours(time_points: Any, count: int, timestep_hours: float) -> np.ndarr
         raise ValueError("time_points must contain valid numeric or datetime values") from exc
     if pd.isna(timestamps).any():
         raise ValueError("time_points must not contain missing timestamps")
+    # pd.to_datetime returns a Series for Series input, whose subtraction lacks
+    # .total_seconds(); normalize to a DatetimeIndex before differencing.
+    timestamps = pd.DatetimeIndex(timestamps)
     elapsed = (timestamps - timestamps[0]).total_seconds() / 3600.0
     return np.asarray(elapsed, dtype=np.float64)
 
