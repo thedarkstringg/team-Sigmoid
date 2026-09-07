@@ -12,7 +12,10 @@ import pandas as pd
 
 from src.data import audit_crossfarm
 from src.data.build_physical_manifest import build_manifest
-from src.data.audit_crossfarm import audit_farm_c_temporal_boundaries
+from src.data.audit_crossfarm import (
+    audit_farm_c_temporal_boundaries,
+    audit_row_id_temporal_boundaries,
+)
 from src.data.export_physical_sequences import build_event_sequences, prepare_power_curve
 from src.data.physical_features import (
     compute_physical_features,
@@ -111,6 +114,27 @@ class EventBoundaryTests(unittest.TestCase):
             self.assertEqual(boundaries.event_end, pd.Timestamp("2023-08-19 10:00:00"))
             self.assertEqual(boundaries.source, "raw_row_ids")
 
+    def test_farm_b_resolves_integer_like_ids_from_original_row_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_2.csv"
+            self.write_raw(
+                path,
+                ["2024-01-01", "2023-08-09 19:20:00", "2023-08-23 04:20:00"],
+                ["train", " Prediction ", "PREDICTION"],
+            )
+            event = {
+                "event_start": "2026-08-08 19:20:00",
+                "event_end": "2026-08-22 04:20:00",
+                "event_start_id": "1.0",
+                "event_end_id": 2.0,
+            }
+
+            boundaries = resolve_event_boundaries(path, event, "B")
+
+            self.assertEqual(boundaries.event_start, pd.Timestamp("2023-08-09 19:20:00"))
+            self.assertEqual(boundaries.event_end, pd.Timestamp("2023-08-23 04:20:00"))
+            self.assertEqual(boundaries.source, "raw_row_ids")
+
     def test_corrupt_farm_c_metadata_does_not_override_valid_ids(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -136,6 +160,43 @@ class EventBoundaryTests(unittest.TestCase):
             checks, failures, mismatches = audit_farm_c_temporal_boundaries(root, event_info)
 
             self.assertEqual(boundaries.event_end, pd.Timestamp("2023-11-08 10:30:00"))
+            self.assertTrue(checks[0]["valid"])
+            self.assertEqual(failures, [])
+            self.assertEqual(mismatches[0]["classification"], "metadata_mismatch")
+            self.assertTrue(mismatches[0]["raw_boundary_valid"])
+            self.assertEqual(
+                {item["field"] for item in mismatches[0]["mismatches"]},
+                {"event_start", "event_end"},
+            )
+
+    def test_corrupt_farm_b_metadata_does_not_override_valid_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "comma_34.csv"
+            self.write_raw(
+                path,
+                ["2023-08-24 00:00:00", "2023-09-15 00:00:00"],
+                ["prediction", "prediction"],
+            )
+            event_info = pd.DataFrame(
+                [
+                    {
+                        "event_id": 34,
+                        "event_start": "2019-08-25 00:00:00",
+                        "event_end": "not-a-timestamp",
+                        "event_start_id": 0,
+                        "event_end_id": 1,
+                    }
+                ]
+            )
+
+            boundaries = resolve_event_boundaries(path, event_info.iloc[0], "B")
+            checks, failures, mismatches = audit_row_id_temporal_boundaries(
+                root, event_info, "B"
+            )
+
+            self.assertEqual(boundaries.event_start, pd.Timestamp("2023-08-24 00:00:00"))
+            self.assertEqual(boundaries.event_end, pd.Timestamp("2023-09-15 00:00:00"))
             self.assertTrue(checks[0]["valid"])
             self.assertEqual(failures, [])
             self.assertEqual(mismatches[0]["classification"], "metadata_mismatch")
@@ -211,18 +272,49 @@ class EventBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "both have train_test=prediction"):
                 resolve_event_boundaries(path, event, "C")
 
-    def test_farm_a_and_b_continue_to_use_metadata_timestamps(self):
+    def test_farm_b_invalid_and_out_of_range_ids_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_87.csv"
+            self.write_raw(path, ["2023-09-14 23:00", "2023-09-30 23:00"], ["prediction"] * 2)
+            base = {
+                "event_start": "ignored",
+                "event_end": "ignored",
+                "event_start_id": 0,
+                "event_end_id": 1,
+            }
+            cases = [
+                ({**base, "event_start_id": "bad"}, "must be an integer-like"),
+                ({**base, "event_end_id": 2}, "event_end_id=2 is out of range"),
+            ]
+
+            for event, message in cases:
+                with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                    resolve_event_boundaries(path, event, "B")
+
+    def test_farm_b_non_prediction_boundary_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "comma_2.csv"
+            self.write_raw(
+                path,
+                ["2023-08-09 19:20", "2023-08-23 04:20"],
+                [" PREDICTION ", "test"],
+            )
+            event = {"event_start_id": 0, "event_end_id": 1}
+
+            with self.assertRaisesRegex(ValueError, "Farm B boundary rows must both"):
+                resolve_event_boundaries(path, event, "B")
+
+    def test_farm_a_continues_to_use_metadata_timestamps(self):
         event = {"event_start": "2024-02-01 01:00", "event_end": "2024-02-02 02:00"}
-        missing_raw = Path("raw-file-is-not-consulted-for-external-farms.csv")
+        missing_raw = Path("raw-file-is-not-consulted-for-farm-a.csv")
 
-        for farm in ("A", "B"):
-            with self.subTest(farm=farm):
-                boundaries = resolve_event_boundaries(missing_raw, event, farm)
-                self.assertEqual(boundaries.event_start, pd.Timestamp(event["event_start"]))
-                self.assertEqual(boundaries.event_end, pd.Timestamp(event["event_end"]))
-                self.assertEqual(boundaries.source, "event_metadata")
+        boundaries = resolve_event_boundaries(missing_raw, event, "A")
 
-    def test_sequence_labels_and_fault_time_use_resolved_farm_c_end(self):
+        self.assertEqual(boundaries.event_start, pd.Timestamp(event["event_start"]))
+        self.assertEqual(boundaries.event_end, pd.Timestamp(event["event_end"]))
+        self.assertEqual(boundaries.source, "event_metadata")
+
+    def test_sequence_labels_and_fault_time_use_resolved_farm_b_end(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "comma_4.csv"
             timestamps = pd.date_range("2024-01-01", periods=151, freq="10min")
@@ -250,8 +342,8 @@ class EventBoundaryTests(unittest.TestCase):
                 sequences = build_event_sequences(
                     raw_path=path,
                     event_row=event,
-                    farm="C",
-                    split="train",
+                    farm="B",
+                    split="test",
                     config={},
                     sensor_ids=[],
                     power_curve=None,
@@ -263,8 +355,8 @@ class EventBoundaryTests(unittest.TestCase):
             self.assertEqual(sequence["event_end"], resolved_end)
             self.assertTrue(sequence["y"].all())
             metadata = build_timestep_metadata(
-                farm="C",
-                split="train",
+                farm="B",
+                split="test",
                 sequence_idx=0,
                 index=sequence["index"],
                 asset_id=sequence["asset_id"],
@@ -277,52 +369,53 @@ class EventBoundaryTests(unittest.TestCase):
             self.assertTrue((metadata["fault_time"] == resolved_end).all())
             self.assertTrue(metadata["label"].all())
 
-    def test_farm_c_audit_is_not_export_ready_when_boundary_ids_are_invalid(self):
+    def test_farm_b_and_c_audits_are_not_export_ready_when_boundary_ids_are_invalid(self):
         config = load_mapping(CONFIG_PATH)
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            output = root / "audit.json"
-            pd.DataFrame(
-                [
-                    {
-                        "event_id": 4,
-                        "event_label": "anomaly",
-                        "event_start": "bad metadata",
-                        "event_end": "bad metadata",
-                        "event_start_id": 0,
-                        "event_end_id": 2,
-                    }
+        for farm in ("B", "C"):
+            with self.subTest(farm=farm), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                output = root / "audit.json"
+                pd.DataFrame(
+                    [
+                        {
+                            "event_id": 4,
+                            "event_label": "anomaly",
+                            "event_start": "bad metadata",
+                            "event_end": "bad metadata",
+                            "event_start_id": 0,
+                            "event_end_id": 2,
+                        }
+                    ]
+                ).to_csv(root / "comma_event_info.csv", index=False)
+                sensors = required_sensor_ids(config, farm)
+                raw = pd.DataFrame({sensor: [1.0, 1.0] for sensor in sensors})
+                frequency_sensor = config["features"]["grid_frequency_deviation_Hz"]["farms"][farm][
+                    "grid_frequency"
                 ]
-            ).to_csv(root / "comma_event_info.csv", index=False)
-            sensors = required_sensor_ids(config, "C")
-            raw = pd.DataFrame({sensor: [1.0, 1.0] for sensor in sensors})
-            frequency_sensor = config["features"]["grid_frequency_deviation_Hz"]["farms"]["C"][
-                "grid_frequency"
-            ]
-            raw[frequency_sensor] = 50.0
-            raw["time_stamp"] = ["2024-01-01 00:00", "2024-01-01 00:10"]
-            raw["train_test"] = "prediction"
-            raw["asset_id"] = 7
-            raw.to_csv(root / "comma_4.csv", index=False)
+                raw[frequency_sensor] = 50.0
+                raw["time_stamp"] = ["2024-01-01 00:00", "2024-01-01 00:10"]
+                raw["train_test"] = "prediction"
+                raw["asset_id"] = 7
+                raw.to_csv(root / "comma_4.csv", index=False)
 
-            argv = [
-                "audit_crossfarm.py",
-                "--farm",
-                "C",
-                "--raw-dir",
-                str(root),
-                "--config",
-                str(CONFIG_PATH),
-                "--output",
-                str(output),
-            ]
-            with patch("sys.argv", argv):
-                audit_crossfarm.main()
+                argv = [
+                    "audit_crossfarm.py",
+                    "--farm",
+                    farm,
+                    "--raw-dir",
+                    str(root),
+                    "--config",
+                    str(CONFIG_PATH),
+                    "--output",
+                    str(output),
+                ]
+                with patch("sys.argv", argv):
+                    audit_crossfarm.main()
 
-            report = json.loads(output.read_text(encoding="utf-8"))
-            self.assertFalse(report["strict_export_ready"])
-            self.assertEqual(len(report["temporal_boundary_failures"]), 1)
-            self.assertIn("out of range", report["temporal_boundary_failures"][0]["reason"])
+                report = json.loads(output.read_text(encoding="utf-8"))
+                self.assertFalse(report["strict_export_ready"])
+                self.assertEqual(len(report["temporal_boundary_failures"]), 1)
+                self.assertIn("out of range", report["temporal_boundary_failures"][0]["reason"])
 
 
 class PhysicalFormulaTests(unittest.TestCase):

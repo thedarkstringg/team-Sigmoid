@@ -91,9 +91,10 @@ def resolve_event_boundaries(
     event_row: Any,
     farm: str,
 ) -> EventBoundaries:
-    """Resolve event bounds, using original raw row positions for Farm C only."""
+    """Resolve event bounds from metadata for A and original raw row positions for B/C."""
 
-    if farm.upper() != "C":
+    farm = farm.upper()
+    if farm == "A":
         metadata_start = _event_value(event_row, "event_start")
         metadata_end = _event_value(event_row, "event_end")
         return EventBoundaries(
@@ -103,6 +104,8 @@ def resolve_event_boundaries(
             metadata_event_start=metadata_start,
             metadata_event_end=metadata_end,
         )
+    if farm not in {"B", "C"}:
+        raise ValueError(f"Unsupported farm for event boundary resolution: {farm!r}")
 
     start_id = _integer_like_id(_event_value(event_row, "event_start_id"), "event_start_id")
     end_id = _integer_like_id(_event_value(event_row, "event_end_id"), "event_end_id")
@@ -112,7 +115,7 @@ def resolve_event_boundaries(
     header = read_care_csv(raw_path, nrows=0).columns.tolist()
     missing = {"time_stamp", "train_test"} - set(header)
     if missing:
-        raise ValueError(f"{raw_path} misses Farm C boundary columns: {sorted(missing)}")
+        raise ValueError(f"{raw_path} misses Farm {farm} boundary columns: {sorted(missing)}")
     boundary_frame = read_care_csv(raw_path, usecols=["time_stamp", "train_test"])
     last_position = len(boundary_frame) - 1
     for field, position in (("event_start_id", start_id), ("event_end_id", end_id)):
@@ -132,17 +135,17 @@ def resolve_event_boundaries(
     try:
         reversed_bounds = event_start > event_end
     except TypeError as exc:
-        raise ValueError("Resolved Farm C boundary timestamps are not comparable") from exc
+        raise ValueError(f"Resolved Farm {farm} boundary timestamps are not comparable") from exc
     if reversed_bounds:
         raise ValueError(
-            f"Resolved Farm C event_start {event_start} is after event_end {event_end}"
+            f"Resolved Farm {farm} event_start {event_start} is after event_end {event_end}"
         )
 
     start_split = str(start_row["train_test"]).strip().casefold()
     end_split = str(end_row["train_test"]).strip().casefold()
     if start_split != "prediction" or end_split != "prediction":
         raise ValueError(
-            "Farm C boundary rows must both have train_test=prediction; "
+            f"Farm {farm} boundary rows must both have train_test=prediction; "
             f"got start={start_row['train_test']!r}, end={end_row['train_test']!r}"
         )
     return EventBoundaries(
