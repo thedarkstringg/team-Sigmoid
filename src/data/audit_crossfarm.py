@@ -41,10 +41,14 @@ def _metadata_timestamp_matches(value: Any, resolved: pd.Timestamp) -> bool:
         return False
 
 
-def audit_farm_c_temporal_boundaries(
-    raw_dir: Path, event_info: pd.DataFrame
+def audit_row_id_temporal_boundaries(
+    raw_dir: Path, event_info: pd.DataFrame, farm: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Validate Farm C row-ID boundaries and separately report metadata drift."""
+    """Validate Farm B/C row-ID boundaries and separately report metadata drift."""
+
+    farm = farm.upper()
+    if farm not in {"B", "C"}:
+        raise ValueError(f"Row-ID temporal boundary audit is only supported for B/C, got {farm!r}")
 
     checks = []
     failures = []
@@ -53,7 +57,7 @@ def audit_farm_c_temporal_boundaries(
         event_id = int(event_row.event_id)
         raw_path = raw_dir / f"comma_{event_id}.csv"
         try:
-            boundaries = resolve_event_boundaries(raw_path, event_row, "C")
+            boundaries = resolve_event_boundaries(raw_path, event_row, farm)
         except (OSError, ValueError) as exc:
             failure = {"event_id": event_id, "valid": False, "reason": str(exc)}
             checks.append(failure)
@@ -97,6 +101,14 @@ def audit_farm_c_temporal_boundaries(
     return checks, failures, metadata_mismatches
 
 
+def audit_farm_c_temporal_boundaries(
+    raw_dir: Path, event_info: pd.DataFrame
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Backward-compatible Farm C temporal boundary audit wrapper."""
+
+    return audit_row_id_temporal_boundaries(raw_dir, event_info, "C")
+
+
 def max_zero_run(values: pd.Series) -> int:
     zero = values.eq(0).fillna(False).to_numpy()
     best = current = 0
@@ -123,9 +135,9 @@ def main() -> None:
     config = load_mapping(args.config)
     sensors = required_sensor_ids(config, args.farm)
     event_info = read_care_csv(args.raw_dir / "comma_event_info.csv")
-    if args.farm == "C":
+    if args.farm in {"B", "C"}:
         temporal_checks, temporal_failures, metadata_mismatches = (
-            audit_farm_c_temporal_boundaries(args.raw_dir, event_info)
+            audit_row_id_temporal_boundaries(args.raw_dir, event_info, args.farm)
         )
     else:
         temporal_checks, temporal_failures, metadata_mismatches = [], [], []
