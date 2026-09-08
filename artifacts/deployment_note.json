@@ -1,0 +1,63 @@
+{
+  "checkpoint": "/sdb-disk/notebooks/team12/team-Sigmoid-crossfarm/checkpoints/farm_c_power_residual/best.pt",
+  "checkpoint_size_bytes": 137867,
+  "checkpoint_size_kb": 134.6,
+  "config": {
+    "input_size": 11,
+    "hidden_size": 32,
+    "num_layers": 2,
+    "dropout": 0.3,
+    "sequence_length": 144
+  },
+  "trained_epoch": 4,
+  "best_val_loss": 1.31303569423147,
+  "torch_version": "2.11.0+cu128",
+  "total_parameters": 10689,
+  "trainable_parameters": 10689,
+  "benchmarks": [
+    {
+      "device": "cpu",
+      "batch_size": 1,
+      "median_batch_latency_ms": 6.6739,
+      "median_per_sequence_latency_ms": 6.6739,
+      "min_batch_latency_ms": 6.1683,
+      "max_batch_latency_ms": 11.9704
+    },
+    {
+      "device": "cpu",
+      "batch_size": 64,
+      "median_batch_latency_ms": 23.7916,
+      "median_per_sequence_latency_ms": 0.3717,
+      "min_batch_latency_ms": 17.4768,
+      "max_batch_latency_ms": 38.9373
+    },
+    {
+      "device": "cuda",
+      "batch_size": 1,
+      "median_batch_latency_ms": 0.3701,
+      "median_per_sequence_latency_ms": 0.3701,
+      "min_batch_latency_ms": 0.3586,
+      "max_batch_latency_ms": 0.5549,
+      "peak_inference_memory_mb": 8.52
+    },
+    {
+      "device": "cuda",
+      "batch_size": 64,
+      "median_batch_latency_ms": 0.43,
+      "median_per_sequence_latency_ms": 0.0067,
+      "min_batch_latency_ms": 0.4205,
+      "max_batch_latency_ms": 0.5836,
+      "peak_inference_memory_mb": 28.586
+    }
+  ],
+  "gpu_name": "NVIDIA A100-SXM4-40GB MIG 3g.20gb",
+  "gpu_total_memory_mb": 19968.0,
+  "gpu_free_memory_mb_at_start": 19747.9,
+  "training_memory": {
+    "available": true,
+    "batch_size": 32,
+    "steps": 5,
+    "peak_training_memory_allocated_mb": 40.022,
+    "peak_training_memory_reserved_mb": 48.0
+  }
+}
