@@ -45,14 +45,23 @@ def load_checkpoint_input_size(checkpoint_path: Path) -> tuple[int, int, int]:
 
 
 def load_target_input_size(data_dir: Path) -> int:
-    """Return the feature dimension F from val_X.npy in the target sequence directory."""
-    x_path = data_dir / "val_X.npy"
-    if not x_path.is_file():
-        raise FileNotFoundError(f"Required sequence file not found: {x_path}")
-    x = np.load(x_path, mmap_mode="r")
-    if x.ndim != 3:
-        raise ValueError(f"Expected 3D val_X.npy (N, T, F), got shape {x.shape}")
-    return int(x.shape[-1])
+    """
+    Return the feature dimension F from the target sequence directory.
+
+    Prefers ``val_X.npy``; falls back to ``test_X.npy`` for external-validation
+    exports (e.g. Farm A/B zero-shot targets) that intentionally contain only
+    a test split and no val files at all.
+    """
+    for filename in ("val_X.npy", "test_X.npy"):
+        x_path = data_dir / filename
+        if x_path.is_file():
+            x = np.load(x_path, mmap_mode="r")
+            if x.ndim != 3:
+                raise ValueError(f"Expected 3D {filename} (N, T, F), got shape {x.shape}")
+            return int(x.shape[-1])
+    raise FileNotFoundError(
+        f"Neither val_X.npy nor test_X.npy found in {data_dir}"
+    )
 
 
 def check_compatibility(checkpoint_path: Path, data_dir: Path) -> tuple[int, int, bool]:

@@ -21,14 +21,14 @@ def _write_checkpoint(directory: Path, input_size: int, hidden_size: int = 32, n
     return path
 
 
-def _write_sequences(directory: Path, input_size: int, n_sequences: int = 2) -> None:
+def _write_sequences(directory: Path, input_size: int, n_sequences: int = 2, split: str = "val") -> None:
     rng = np.random.default_rng(seed=42)
     x = rng.random((n_sequences, 144, input_size), dtype=np.float32)
     y = rng.integers(0, 2, size=(n_sequences, 144), dtype=np.uint8)
     mask = np.ones((n_sequences, 144), dtype=np.uint8)
-    np.save(directory / "val_X.npy", x)
-    np.save(directory / "val_y.npy", y)
-    np.save(directory / "val_mask.npy", mask)
+    np.save(directory / f"{split}_X.npy", x)
+    np.save(directory / f"{split}_y.npy", y)
+    np.save(directory / f"{split}_mask.npy", mask)
 
 
 class CrossFarmCompatibilityTests(unittest.TestCase):
@@ -79,6 +79,48 @@ class CrossFarmCompatibilityTests(unittest.TestCase):
             checkpoint = _write_checkpoint(root, input_size=10)
 
             with self.assertRaisesRegex(FileNotFoundError, "val_X.npy"):
+                check_compatibility(checkpoint, root)
+
+    def test_target_with_only_test_split_is_compatible(self):
+        # Mirrors Farm A/B external-validation exports: no val files at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = _write_checkpoint(root, input_size=10)
+            _write_sequences(root, input_size=10, split="test")
+
+            ckpt_size, data_size, compatible = check_compatibility(checkpoint, root)
+
+            self.assertEqual(ckpt_size, 10)
+            self.assertEqual(data_size, 10)
+            self.assertTrue(compatible)
+
+    def test_target_with_only_test_split_detects_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = _write_checkpoint(root, input_size=10)
+            _write_sequences(root, input_size=11, split="test")
+
+            with self.assertRaisesRegex(ValueError, "input_size=10.*input_size=11"):
+                check_compatibility(checkpoint, root)
+
+    def test_val_x_is_preferred_over_test_x_when_both_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = _write_checkpoint(root, input_size=10)
+            _write_sequences(root, input_size=10, split="val")
+            _write_sequences(root, input_size=11, split="test")
+
+            ckpt_size, data_size, compatible = check_compatibility(checkpoint, root)
+
+            self.assertEqual(data_size, 10)
+            self.assertTrue(compatible)
+
+    def test_missing_both_val_and_test_raises_file_not_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            checkpoint = _write_checkpoint(root, input_size=10)
+
+            with self.assertRaisesRegex(FileNotFoundError, "val_X.npy.*test_X.npy"):
                 check_compatibility(checkpoint, root)
 
     def test_deterministic_repeated_check_returns_identical_result(self):
