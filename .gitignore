@@ -53,3 +53,4 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+!artifacts/gru_predictions_*.parquet

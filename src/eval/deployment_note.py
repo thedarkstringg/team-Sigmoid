@@ -8,13 +8,23 @@ system produces one 144-timestep window per turbine per hour, so any latency
 in the millisecond range is operationally irrelevant — the point of reporting
 it is to show the model is deployable on ordinary hardware, not to optimise it.
 
+input_size, hidden_size and num_layers are inferred directly from the
+checkpoint's own weight shapes (same helper export_gru_predictions.py and
+cross_farm_evaluate.py use), not hardcoded — this file previously hardcoded
+INPUT_SIZE=54 (Farm A), which silently mismatches every Farm C checkpoint
+(10 or 11 features). --hidden_size/--num_layers remain available as optional
+overrides that are validated against the checkpoint rather than trusted
+blindly, matching export_gru_predictions.py's own validation pattern.
+
 Usage:
     python src/eval/deployment_note.py \
-        --checkpoint checkpoints/h32_dropout/best.pt \
-        --hidden_size 32 --dropout 0.3
+        --checkpoint checkpoints/farm_c_power_residual/best.pt \
+        --dropout 0.3
 
-Peak TRAINING memory is not measurable here — it needs nvidia-smi during an
-actual training run. Capture it separately and add it to the writeup.
+Peak TRAINING memory is measured with synthetic tensors of the correct shape
+via torch's own allocator counters (see measure_training_memory) rather than
+nvidia-smi, since nvidia-smi reports whole-device usage on a shared GPU/MIG
+slice, not this process's own footprint.
 """
 
 from __future__ import annotations
@@ -24,6 +34,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import torch
 
@@ -34,8 +45,14 @@ sys.path.insert(0, os.path.join(_REPO_ROOT, "src", "model"))
 
 from model import TemporalRiskModel  # noqa: E402
 
+try:
+    from src.eval.export_gru_predictions import checkpoint_state, infer_model_shape
+except ModuleNotFoundError:  # Support direct execution from src/eval, same
+    # fallback pattern as cross_farm_evaluate.py for consistency.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from export_gru_predictions import checkpoint_state, infer_model_shape
+
 SEQ_LEN = 144
-INPUT_SIZE = 54
 
 
 def count_parameters(model: torch.nn.Module) -> dict:
@@ -45,10 +62,10 @@ def count_parameters(model: torch.nn.Module) -> dict:
 
 
 def benchmark(model: torch.nn.Module, device: torch.device, batch_size: int,
-              repeats: int, warmup: int) -> dict:
+              input_size: int, repeats: int, warmup: int) -> dict:
     """Median wall-clock latency for one forward pass at the given batch size."""
     model = model.to(device).eval()
-    x = torch.randn(batch_size, SEQ_LEN, INPUT_SIZE, device=device)
+    x = torch.randn(batch_size, SEQ_LEN, input_size, device=device)
 
     is_cuda = device.type == "cuda"
     if is_cuda:
@@ -89,7 +106,7 @@ def benchmark(model: torch.nn.Module, device: torch.device, batch_size: int,
 
 
 def measure_training_memory(model: torch.nn.Module, device: torch.device,
-                            batch_size: int, steps: int = 5) -> dict:
+                            batch_size: int, input_size: int, steps: int = 5) -> dict:
     """
     Peak GPU memory during training, measured with torch's own allocator.
 
@@ -109,7 +126,7 @@ def measure_training_memory(model: torch.nn.Module, device: torch.device,
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = torch.nn.BCEWithLogitsLoss(reduction="none")
 
-    x = torch.randn(batch_size, SEQ_LEN, INPUT_SIZE, device=device)
+    x = torch.randn(batch_size, SEQ_LEN, input_size, device=device)
     y = torch.randint(0, 2, (batch_size, SEQ_LEN), device=device).float()
     mask = torch.ones(batch_size, SEQ_LEN, device=device)
 
@@ -143,9 +160,14 @@ def measure_training_memory(model: torch.nn.Module, device: torch.device,
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/h32_dropout/best.pt")
-    parser.add_argument("--hidden_size", type=int, default=32)
-    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--checkpoint", type=str, required=True,
+                        help="e.g. checkpoints/farm_c_power_residual/best.pt")
+    parser.add_argument("--input_size", type=int, default=None,
+                        help="override; validated against the checkpoint's own weights, not trusted blindly")
+    parser.add_argument("--hidden_size", type=int, default=None,
+                        help="override; validated against the checkpoint's own weights")
+    parser.add_argument("--num_layers", type=int, default=None,
+                        help="override; validated against the checkpoint's own weights")
     parser.add_argument("--dropout", type=float, default=0.3,
                         help="must match the value used when this checkpoint was trained")
     parser.add_argument("--batch_sizes", type=int, nargs="+", default=[1, 64],
@@ -157,29 +179,42 @@ def main() -> None:
     parser.add_argument("--out", type=str, default="artifacts/deployment_note.json")
     args = parser.parse_args()
 
+    checkpoint = torch.load(args.checkpoint, map_location="cpu")
+    state = checkpoint_state(checkpoint)
+    inferred_input, inferred_hidden, inferred_layers = infer_model_shape(state)
+
+    input_size = args.input_size or inferred_input
+    hidden_size = args.hidden_size or inferred_hidden
+    num_layers = args.num_layers or inferred_layers
+
+    if (input_size, hidden_size, num_layers) != (inferred_input, inferred_hidden, inferred_layers):
+        raise ValueError(
+            "Supplied model dimensions disagree with checkpoint: "
+            f"supplied={(input_size, hidden_size, num_layers)}, "
+            f"checkpoint={(inferred_input, inferred_hidden, inferred_layers)}"
+        )
+
     model = TemporalRiskModel(
-        input_size=INPUT_SIZE,
-        hidden_size=args.hidden_size,
-        num_layers=args.num_layers,
+        input_size=input_size,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
         dropout=args.dropout,
     )
-
-    checkpoint = torch.load(args.checkpoint, map_location="cpu")
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(state, strict=True)
 
     report = {
         "checkpoint": args.checkpoint,
         "checkpoint_size_bytes": os.path.getsize(args.checkpoint),
         "checkpoint_size_kb": round(os.path.getsize(args.checkpoint) / 1024, 1),
         "config": {
-            "input_size": INPUT_SIZE,
-            "hidden_size": args.hidden_size,
-            "num_layers": args.num_layers,
+            "input_size": input_size,
+            "hidden_size": hidden_size,
+            "num_layers": num_layers,
             "dropout": args.dropout,
             "sequence_length": SEQ_LEN,
         },
-        "trained_epoch": checkpoint.get("epoch"),
-        "best_val_loss": checkpoint.get("best_val_loss"),
+        "trained_epoch": checkpoint.get("epoch") if isinstance(checkpoint, dict) else None,
+        "best_val_loss": checkpoint.get("best_val_loss") if isinstance(checkpoint, dict) else None,
         "torch_version": torch.__version__,
         **count_parameters(model),
         "benchmarks": [],
@@ -200,17 +235,17 @@ def main() -> None:
     for device in devices:
         for batch_size in args.batch_sizes:
             report["benchmarks"].append(
-                benchmark(model, device, batch_size, args.repeats, args.warmup)
+                benchmark(model, device, batch_size, input_size, args.repeats, args.warmup)
             )
 
     if torch.cuda.is_available():
         report["training_memory"] = measure_training_memory(
-            model, torch.device("cuda"), args.train_batch_size
+            model, torch.device("cuda"), args.train_batch_size, input_size
         )
     else:
         report["training_memory"] = {"available": False, "reason": "no CUDA device"}
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
