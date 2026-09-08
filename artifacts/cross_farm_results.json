@@ -1,0 +1,69 @@
+{
+  "experiment": "cross_farm_zero_shot_evaluation",
+  "task": "Kamal task #14",
+  "training_farm": "C",
+  "checkpoint": "checkpoints/farm_c_final/best.pt",
+  "model": {
+    "architecture": "GRU",
+    "bidirectional": false,
+    "input_size": 10,
+    "hidden_size": 32,
+    "num_layers": 2,
+    "dropout": 0.3
+  },
+  "threshold_selection": {
+    "method": "maximum F1 on Farm C validation split",
+    "frozen_threshold": 0.475,
+    "applied_to": ["farm_c_test", "farm_a_external_test", "farm_b_external_test"],
+    "tuned_on_farm_a_or_b": false
+  },
+  "preprocessing": {
+    "scaler": "frozen Farm C scaler, reused unchanged on Farm A/B",
+    "clipping_policy": "|x| > 10 clipped to [-10, 10]",
+    "valid_timestep_selection": "dataset mask",
+    "farm_a_b_retrained": false
+  },
+  "results": {
+    "farm_c_test": {
+      "role": "source-domain test",
+      "n_timesteps": 290793,
+      "n_positive": 10611,
+      "positive_rate": 0.03648987424043908,
+      "roc_auc": 0.47512994402770503,
+      "pr_auc": 0.03799941531016279,
+      "threshold": 0.475,
+      "precision": 0.028658040857276298,
+      "recall": 0.6245405711054566,
+      "f1": 0.054801430609249344
+    },
+    "farm_a_external_test": {
+      "role": "zero-shot external evaluation",
+      "n_timesteps": 622715,
+      "n_positive": 34934,
+      "positive_rate": 0.056099,
+      "roc_auc": 0.427255,
+      "pr_auc": 0.048552,
+      "threshold": 0.475,
+      "precision": 0.039987,
+      "recall": 0.045772,
+      "f1": 0.042684
+    },
+    "farm_b_external_test": {
+      "role": "zero-shot external evaluation",
+      "n_timesteps": 1214700,
+      "n_positive": 25244,
+      "positive_rate": 0.020782,
+      "roc_auc": 0.489700,
+      "pr_auc": 0.020006,
+      "threshold": 0.475,
+      "precision": 0.031170,
+      "recall": 0.008160,
+      "f1": 0.012934
+    }
+  },
+  "notes": [
+    "Farm A and Farm B are external test-only zero-shot evaluations; no retraining occurred on either farm.",
+    "No threshold tuning was performed on Farm A or Farm B; the Farm-C-selected threshold (0.475) was frozen and reused.",
+    "Results indicate substantial cross-farm performance degradation relative to the source domain, not successful generalization."
+  ]
+}

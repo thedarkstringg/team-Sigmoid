@@ -1,0 +1,52 @@
+# Cross-Farm Zero-Shot Evaluation Results (Task #14)
+
+## 1. Experiment setup
+
+- **Training farm:** Farm C
+- **Primary checkpoint:** `checkpoints/farm_c_final/best.pt`
+- **Farm A and Farm B are external, test-only, zero-shot evaluations.** No retraining occurred on either farm, and no threshold tuning was performed on Farm A or Farm B.
+- Farm A/B use the frozen Farm C preprocessing/scaler (not independently fitted).
+- Same clipping policy applied everywhere: `|x| > 10` clipped to `[-10, 10]`.
+- Valid timesteps are selected using the dataset mask (gap-filled rows excluded).
+
+## 2. Checkpoint / model configuration
+
+| Parameter | Value |
+| --- | --- |
+| Architecture | GRU (unidirectional) |
+| `input_size` | 10 |
+| `hidden_size` | 32 |
+| `num_layers` | 2 |
+| `dropout` | 0.3 |
+| `bidirectional` | false |
+
+## 3. Threshold selection protocol
+
+- The classification threshold was selected on the **Farm C validation split** using **maximum F1**.
+- The resulting threshold, **0.475**, was **frozen** and reused unchanged for every test evaluation below (Farm C test, Farm A external test, Farm B external test).
+- No threshold was tuned or re-selected on Farm A or Farm B data.
+
+## 4. Results
+
+| Split | Role | n_timesteps | n_positive | positive_rate | roc_auc | pr_auc | threshold | precision | recall | f1 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Farm C test | source-domain test | 290793 | 10611 | 0.036490 | 0.475130 | 0.037999 | 0.475 | 0.028658 | 0.624541 | 0.054801 |
+| Farm A external test | zero-shot external | 622715 | 34934 | 0.056099 | 0.427255 | 0.048552 | 0.475 | 0.039987 | 0.045772 | 0.042684 |
+| Farm B external test | zero-shot external | 1214700 | 25244 | 0.020782 | 0.489700 | 0.020006 | 0.475 | 0.031170 | 0.008160 | 0.012934 |
+
+## 5. Interpretation
+
+- On its own source domain (Farm C test), the model already shows weak discrimination (ROC-AUC ≈ 0.475, near chance) under the frozen max-F1 threshold, though recall is high (0.625) at the cost of very low precision.
+- **Farm A and Farm B are zero-shot external evaluations**: the checkpoint was trained exclusively on Farm C and evaluated on Farm A/B without any retraining or threshold re-tuning.
+- On Farm A, ROC-AUC drops further to 0.427 (below chance level), and recall collapses to 0.046 (vs. 0.625 on Farm C) under the same frozen threshold.
+- On Farm B, ROC-AUC (0.490) is close to chance, and recall is extremely low (0.008), with precision (0.031) also weaker than on Farm C.
+- Across both external farms, F1 (0.043 and 0.013) is substantially lower than on Farm C (0.055), and the pattern is consistent: the frozen Farm-C threshold and scaler do not transfer usefully to either external farm.
+
+## 6. Limitations / generalization note
+
+**These results indicate substantial cross-farm performance degradation, not successful generalization.** The model does not generalize well from Farm C to Farm A or Farm B under this zero-shot protocol:
+
+- ROC-AUC on both external farms is at or below chance level (0.427 and 0.490), indicating the model's ranking of fault risk does not transfer.
+- Recall drops drastically on both external farms relative to Farm C, meaning the frozen threshold that was tuned for Farm C's score distribution is poorly calibrated for Farm A/B's score distributions.
+- Because no threshold or scaler recalibration was performed on Farm A/B (by design, to keep this a strict zero-shot test), these results should be read as evidence of a domain-shift/generalization gap, not as a deployable cross-farm model.
+- Any future work extending this evaluation should not reuse these numbers as a baseline for a "working" cross-farm model without addressing this generalization gap first (e.g. via domain adaptation, farm-specific calibration, or additional cross-farm training data).
