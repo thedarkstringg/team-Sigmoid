@@ -1,69 +1,89 @@
 {
   "experiment": "cross_farm_zero_shot_evaluation",
   "task": "Kamal task #14",
+  "status": "RESULTS_BELOW_ARE_FOR_A_SUPERSEDED_CHECKPOINT_RERUN_REQUIRED",
   "training_farm": "C",
-  "checkpoint": "checkpoints/farm_c_final/best.pt",
-  "model": {
-    "architecture": "GRU",
-    "bidirectional": false,
-    "input_size": 10,
-    "hidden_size": 32,
-    "num_layers": 2,
-    "dropout": 0.3
-  },
-  "threshold_selection": {
-    "method": "maximum F1 on Farm C validation split",
-    "frozen_threshold": 0.475,
-    "applied_to": ["farm_c_test", "farm_a_external_test", "farm_b_external_test"],
-    "tuned_on_farm_a_or_b": false
-  },
-  "preprocessing": {
-    "scaler": "frozen Farm C scaler, reused unchanged on Farm A/B",
-    "clipping_policy": "|x| > 10 clipped to [-10, 10]",
-    "valid_timestep_selection": "dataset mask",
-    "farm_a_b_retrained": false
-  },
-  "results": {
-    "farm_c_test": {
-      "role": "source-domain test",
-      "n_timesteps": 290793,
-      "n_positive": 10611,
-      "positive_rate": 0.03648987424043908,
-      "roc_auc": 0.47512994402770503,
-      "pr_auc": 0.03799941531016279,
-      "threshold": 0.475,
-      "precision": 0.028658040857276298,
-      "recall": 0.6245405711054566,
-      "f1": 0.054801430609249344
+  "designated_cross_farm_checkpoint": {
+    "path": "checkpoints/farm_c_lr5e4/best.pt",
+    "reason": "Farm A/B were re-exported using the strict 10-feature physical schema; power_residual is excluded on purpose because it requires target-domain calibration that would break zero-shot validity. This is the best-by-validation 10-feature-only configuration.",
+    "model": {
+      "architecture": "GRU",
+      "bidirectional": false,
+      "input_size": 10,
+      "hidden_size": 32,
+      "num_layers": 2,
+      "dropout": 0.4
     },
-    "farm_a_external_test": {
-      "role": "zero-shot external evaluation",
-      "n_timesteps": 622715,
-      "n_positive": 34934,
-      "positive_rate": 0.056099,
-      "roc_auc": 0.427255,
-      "pr_auc": 0.048552,
-      "threshold": 0.475,
-      "precision": 0.039987,
-      "recall": 0.045772,
-      "f1": 0.042684
+    "approx_validation_roc_auc": 0.645,
+    "evaluated_on_farm_a_b_in_this_repo": false,
+    "note": "No Farm A/B evaluation results for this checkpoint exist in the repository yet. Do NOT reuse the results below as if they were produced by this checkpoint; rerun the external evaluation commands in cross_farm_results.md to populate real numbers here."
+  },
+  "superseded_results": {
+    "checkpoint_used": "checkpoints/farm_c_final/best.pt",
+    "why_superseded": "This checkpoint used an 11-feature configuration (power_residual included) that is incompatible with the strict 10-feature Farm A/B exports. It is NOT the designated cross-farm checkpoint.",
+    "model": {
+      "architecture": "GRU",
+      "bidirectional": false,
+      "input_size": 10,
+      "hidden_size": 32,
+      "num_layers": 2,
+      "dropout": 0.3
     },
-    "farm_b_external_test": {
-      "role": "zero-shot external evaluation",
-      "n_timesteps": 1214700,
-      "n_positive": 25244,
-      "positive_rate": 0.020782,
-      "roc_auc": 0.489700,
-      "pr_auc": 0.020006,
-      "threshold": 0.475,
-      "precision": 0.031170,
-      "recall": 0.008160,
-      "f1": 0.012934
+    "threshold_selection": {
+      "method": "maximum F1 on Farm C validation split",
+      "frozen_threshold": 0.475,
+      "applied_to": ["farm_c_test", "farm_a_external_test", "farm_b_external_test"],
+      "tuned_on_farm_a_or_b": false
+    },
+    "preprocessing": {
+      "scaler": "frozen Farm C scaler, reused unchanged on Farm A/B",
+      "clipping_policy": "|x| > 10 clipped to [-10, 10]",
+      "valid_timestep_selection": "dataset mask",
+      "farm_a_b_retrained": false
+    },
+    "results": {
+      "farm_c_test": {
+        "role": "source-domain test",
+        "n_timesteps": 290793,
+        "n_positive": 10611,
+        "positive_rate": 0.03648987424043908,
+        "roc_auc": 0.47512994402770503,
+        "pr_auc": 0.03799941531016279,
+        "threshold": 0.475,
+        "precision": 0.028658040857276298,
+        "recall": 0.6245405711054566,
+        "f1": 0.054801430609249344
+      },
+      "farm_a_external_test": {
+        "role": "zero-shot external evaluation",
+        "n_timesteps": 622715,
+        "n_positive": 34934,
+        "positive_rate": 0.056099,
+        "roc_auc": 0.427255,
+        "pr_auc": 0.048552,
+        "threshold": 0.475,
+        "precision": 0.039987,
+        "recall": 0.045772,
+        "f1": 0.042684
+      },
+      "farm_b_external_test": {
+        "role": "zero-shot external evaluation",
+        "n_timesteps": 1214700,
+        "n_positive": 25244,
+        "positive_rate": 0.020782,
+        "roc_auc": 0.489700,
+        "pr_auc": 0.020006,
+        "threshold": 0.475,
+        "precision": 0.031170,
+        "recall": 0.008160,
+        "f1": 0.012934
+      }
     }
   },
   "notes": [
     "Farm A and Farm B are external test-only zero-shot evaluations; no retraining occurred on either farm.",
-    "No threshold tuning was performed on Farm A or Farm B; the Farm-C-selected threshold (0.475) was frozen and reused.",
-    "Results indicate substantial cross-farm performance degradation relative to the source domain, not successful generalization."
+    "No threshold tuning was performed on Farm A or Farm B; any evaluation must reuse the threshold frozen from Farm C validation.",
+    "The 'superseded_results' above were produced with the wrong checkpoint (farm_c_final, 11-feature) and must not be cited as the project's designated cross-farm result.",
+    "The designated checkpoint (farm_c_lr5e4, 10-feature) has not yet been evaluated on Farm A/B in this repository; rerun is required before reporting final cross-farm numbers."
   ]
 }
