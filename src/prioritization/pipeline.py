@@ -19,6 +19,7 @@ degradation.py for the respective algorithms and validation rules.
 
 from __future__ import annotations
 
+import argparse
 from typing import Any
 
 from src.prioritization.aggregation import (
@@ -129,3 +130,57 @@ class PrioritizationPipeline:
         fault_risk = self.fault_risk_from_predictions(probabilities)
         degradation_rate = self.degradation_rate_from_predictions(probabilities)
         return self.calculate(fault_risk, degradation_rate, access_cost, criticality)
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute PriorityScore from real FaultRisk/DegradationRate/AccessCost/"
+            "Criticality values via the existing prioritization pipeline. Does not "
+            "invent or fabricate any component value - all four must be supplied."
+        )
+    )
+    parser.add_argument("--fault-risk", type=float, required=True, help="FaultRisk value")
+    parser.add_argument("--degradation-rate", type=float, required=True, help="DegradationRate value")
+    parser.add_argument("--access-cost", type=float, required=True, help="AccessCost value")
+    parser.add_argument("--criticality", type=float, required=True, help="Criticality value")
+    parser.add_argument("--w-fault-risk", type=float, default=None, help="override w1 (default: PrioritizationWeights default)")
+    parser.add_argument("--w-degradation-rate", type=float, default=None, help="override w2 (default: PrioritizationWeights default)")
+    parser.add_argument("--w-access-cost", type=float, default=None, help="override w3 (default: PrioritizationWeights default)")
+    parser.add_argument("--w-criticality", type=float, default=None, help="override w4 (default: PrioritizationWeights default)")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point: parse args, validate, and delegate to calculate_priority."""
+    args = _build_arg_parser().parse_args(argv)
+
+    weights = None
+    if any(
+        w is not None
+        for w in (args.w_fault_risk, args.w_degradation_rate, args.w_access_cost, args.w_criticality)
+    ):
+        defaults = PrioritizationWeights()
+        weights = PrioritizationWeights(
+            w1_fault_risk=args.w_fault_risk if args.w_fault_risk is not None else defaults.w1_fault_risk,
+            w2_degradation_rate=(
+                args.w_degradation_rate if args.w_degradation_rate is not None else defaults.w2_degradation_rate
+            ),
+            w3_access_cost=args.w_access_cost if args.w_access_cost is not None else defaults.w3_access_cost,
+            w4_criticality=args.w_criticality if args.w_criticality is not None else defaults.w4_criticality,
+        )
+
+    # calculate_priority delegates to core.calculate_priority_score, which
+    # performs all input/weight validation - no validation is duplicated here.
+    score = calculate_priority(
+        fault_risk=args.fault_risk,
+        degradation_rate=args.degradation_rate,
+        access_cost=args.access_cost,
+        criticality=args.criticality,
+        weights=weights,
+    )
+    print(f"PriorityScore={score}")
+
+
+if __name__ == "__main__":
+    main()

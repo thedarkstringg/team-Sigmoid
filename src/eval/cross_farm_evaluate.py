@@ -14,8 +14,14 @@ hard-coded per farm.
 Usage from repo root:
 
     python -m src.eval.cross_farm_evaluate \
-        --checkpoint checkpoints/farm_c_power_residual/best.pt \
-        --data_dir data/processed/CARE_Farm_A/physical_sequences
+        --checkpoint checkpoints/farm_c_lr5e4/best.pt \
+        --data_dir data/processed/CARE_Farm_A/physical_sequences \
+        --hidden_size 32 --num_layers 2 --dropout 0.4
+
+The designated cross-farm checkpoint is the 10-feature, unidirectional
+``checkpoints/farm_c_lr5e4/best.pt`` (validation ROC-AUC ~0.645). The older
+11-feature ``farm_c_power_residual`` checkpoint is NOT compatible with the
+strict 10-feature Farm A/B exports and must not be used for this evaluation.
 """
 
 from __future__ import annotations
