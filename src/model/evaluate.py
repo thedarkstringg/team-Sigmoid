@@ -5,6 +5,7 @@ baseline numbers (ROC-AUC 0.662, PR-AUC 0.319, F1 0.384, recall 0.396).
 """
 
 import argparse
+import os
 import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, recall_score
@@ -80,13 +81,20 @@ def main_with_args(args):
     """Run evaluation with an already-populated argparse.Namespace."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Some external-validation exports (e.g. Farm A/B zero-shot targets)
+    # intentionally contain only a test split, with no val files at all.
+    # Evaluate whichever splits actually exist instead of assuming both.
+    has_val = os.path.exists(f"{args.data_dir}/val_X.npy")
+    splits = ["val", "test"] if has_val else ["test"]
+    probe_split = "val" if has_val else "test"
+
     # infer input_size from the actual data being evaluated, rather than
     # hardcoding it - if this doesn't match the checkpoint's trained size,
     # load_state_dict below will fail loudly with a clear shape mismatch,
     # which is the correct, informative failure mode here.
-    probe_x = np.load(f"{args.data_dir}/val_X.npy")
+    probe_x = np.load(f"{args.data_dir}/{probe_split}_X.npy")
     inferred_input_size = probe_x.shape[-1]
-    print(f"Inferred input_size={inferred_input_size} from {args.data_dir}/val_X.npy")
+    print(f"Inferred input_size={inferred_input_size} from {args.data_dir}/{probe_split}_X.npy")
 
     model = TemporalRiskModel(input_size=inferred_input_size, hidden_size=args.hidden_size,
                                num_layers=args.num_layers, dropout=args.dropout,
@@ -96,7 +104,7 @@ def main_with_args(args):
     print(f"Loaded checkpoint from epoch {checkpoint['epoch']}, "
           f"recorded best_val_loss={checkpoint['best_val_loss']:.4f}")
 
-    for split in ["val", "test"]:
+    for split in splits:
         x, y, mask = load_split(args.data_dir, split)
         metrics = evaluate(model, x, y, mask, device, args.threshold)
         print(f"\n--- {split} ---")
