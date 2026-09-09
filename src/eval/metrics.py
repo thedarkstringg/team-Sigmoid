@@ -414,9 +414,154 @@ def cost_curve(df: pd.DataFrame, cost_fn: float = 10.0, cost_fp: float = 1.0,
     return pd.DataFrame(rows)
 
 
+def select_threshold_max_f1(labels: np.ndarray, probs: np.ndarray,
+                            thresholds: np.ndarray | None = None) -> dict:
+    """
+    Threshold that maximizes F1 on the given (labels, probs) — the same
+    'validation F1' selection method already used for the Farm C classical
+    baselines (see artifacts/baseline/farm_c/run_manifest.json,
+    threshold_selection='validation F1', comparison operator '>=').
+
+    Reusing this exact method for a new model is what makes threshold
+    choices comparable across models in the same paper, rather than each
+    model picking its own ad hoc convention.
+
+    Call this ONCE on a validation split to select a frozen threshold, then
+    apply that same threshold everywhere else (other splits, other farms)
+    with classification_metrics() or breakdown() — do not call this again
+    on test or on a target domain in a zero-shot setting; re-selecting the
+    threshold per-split defeats the purpose of freezing it.
+    """
+    if thresholds is None:
+        thresholds = np.linspace(0.01, 0.99, 197)
+
+    labels = np.asarray(labels)
+    probs = np.asarray(probs)
+
+    best_threshold = None
+    best_f1 = -1.0
+    rows = []
+    for tau in thresholds:
+        preds = (probs >= tau).astype(int)  # >= to match the existing convention
+        f1 = f1_score(labels, preds, zero_division=0)
+        rows.append({"threshold": float(tau), "f1": float(f1)})
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = float(tau)
+
+    return {
+        "threshold": best_threshold,
+        "f1_at_threshold": best_f1,
+        "selection_method": "validation F1",
+        "comparison_operator": ">=",
+        "sweep": pd.DataFrame(rows),
+    }
+
+
 def optimal_threshold(curve: pd.DataFrame) -> dict:
     """Lowest-cost row of a cost_curve(), as a plain dict."""
     return curve.loc[curve["total_cost"].idxmin()].to_dict()
+
+
+def baseline_policy_costs(df: pd.DataFrame, cost_fn: float = 10.0,
+                          cost_fp: float = 1.0,
+                          fp_cost_by_asset: dict | None = None) -> dict:
+    """
+    Cost of two no-model policies, under the same cost assumptions as
+    cost_curve(), so the model's cost curve can be judged against something
+    concrete rather than in isolation.
+
+    reactive_only: never alarm, wait for failure. Every labelled-positive
+        window is a missed opportunity (an FN), no false positives are ever
+        raised. This is the "no monitoring system" counterfactual.
+
+    always_alarm: alarm on every window. No fault is ever missed, but every
+        labelled-negative window becomes a false positive - the cost of
+        maximally cautious, constant inspection.
+
+    A useful model's cost curve should dip below both of these somewhere in
+    the threshold sweep. If it doesn't, that is itself a finding worth
+    reporting, not a result to hide.
+    """
+    n_positive = int(df["label"].sum())
+    n_negative = int((df["label"] == 0).sum())
+
+    if fp_cost_by_asset is None:
+        always_alarm_cost = n_negative * cost_fp
+    else:
+        neg = df[df["label"] == 0]
+        assets = neg["asset_id"].to_numpy()
+        missing = set(np.unique(assets)) - set(fp_cost_by_asset)
+        if missing:
+            raise ValueError(f"fp_cost_by_asset has no entry for assets: {sorted(missing)}")
+        always_alarm_cost = float(sum(fp_cost_by_asset[a] for a in assets))
+
+    return {
+        "n_positive_windows": n_positive,
+        "n_negative_windows": n_negative,
+        "reactive_only_cost": float(n_positive * cost_fn),
+        "always_alarm_cost": float(always_alarm_cost),
+    }
+
+
+def cost_reduction_summary(df: pd.DataFrame, cost_fn: float = 10.0, cost_fp: float = 1.0,
+                           thresholds: np.ndarray | None = None,
+                           fp_cost_by_asset: dict | None = None) -> dict:
+    """
+    Model cost at its best threshold, next to both baseline policies, as
+    percentage reductions.
+
+    This is the number to quote as "cost reduction," and it must always be
+    reported together with the cost_fn:cost_fp ratio it assumes - the
+    percentage changes if that ratio changes. See cost_ratio_sensitivity()
+    for how much it moves.
+    """
+    curve = cost_curve(df, cost_fn=cost_fn, cost_fp=cost_fp,
+                       thresholds=thresholds, fp_cost_by_asset=fp_cost_by_asset)
+    best = optimal_threshold(curve)
+    baselines = baseline_policy_costs(df, cost_fn=cost_fn, cost_fp=cost_fp,
+                                      fp_cost_by_asset=fp_cost_by_asset)
+
+    def pct_reduction(baseline_cost: float) -> float:
+        if baseline_cost == 0:
+            return np.nan
+        return float((baseline_cost - best["total_cost"]) / baseline_cost * 100.0)
+
+    return {
+        "cost_fn": cost_fn,
+        "cost_fp": cost_fp,
+        "cost_ratio": cost_fn / cost_fp,
+        "model_optimal_threshold": best["threshold"],
+        "model_cost": best["total_cost"],
+        "model_n_fn": best["n_fn"],
+        "model_n_fp": best["n_fp"],
+        "reactive_only_cost": baselines["reactive_only_cost"],
+        "always_alarm_cost": baselines["always_alarm_cost"],
+        "reduction_vs_reactive_only_pct": pct_reduction(baselines["reactive_only_cost"]),
+        "reduction_vs_always_alarm_pct": pct_reduction(baselines["always_alarm_cost"]),
+    }
+
+
+def cost_ratio_sensitivity(df: pd.DataFrame, cost_ratios: np.ndarray | None = None,
+                           thresholds: np.ndarray | None = None) -> pd.DataFrame:
+    """
+    cost_reduction_summary() swept across several cost_fn:cost_fp ratios.
+
+    Any single reduction percentage is a function of an assumed ratio you
+    chose. Reporting it as a sensitivity table instead of one number is the
+    difference between a defensible claim and an overclaimed one, especially
+    with as few fault events as Farm A has.
+    """
+    if cost_ratios is None:
+        cost_ratios = np.array([2, 5, 10, 20, 50])
+
+    rows = []
+    for ratio in cost_ratios:
+        summary = cost_reduction_summary(df, cost_fn=float(ratio), cost_fp=1.0,
+                                         thresholds=thresholds)
+        rows.append(summary)
+
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------

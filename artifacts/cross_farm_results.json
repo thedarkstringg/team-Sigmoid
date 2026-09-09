@@ -1,89 +1,373 @@
 {
-  "experiment": "cross_farm_zero_shot_evaluation",
-  "task": "Kamal task #14",
-  "status": "RESULTS_BELOW_ARE_FOR_A_SUPERSEDED_CHECKPOINT_RERUN_REQUIRED",
-  "training_farm": "C",
-  "designated_cross_farm_checkpoint": {
-    "path": "checkpoints/farm_c_lr5e4/best.pt",
-    "reason": "Farm A/B were re-exported using the strict 10-feature physical schema; power_residual is excluded on purpose because it requires target-domain calibration that would break zero-shot validity. This is the best-by-validation 10-feature-only configuration.",
-    "model": {
-      "architecture": "GRU",
-      "bidirectional": false,
-      "input_size": 10,
-      "hidden_size": 32,
-      "num_layers": 2,
-      "dropout": 0.4
-    },
-    "approx_validation_roc_auc": 0.645,
-    "evaluated_on_farm_a_b_in_this_repo": false,
-    "note": "No Farm A/B evaluation results for this checkpoint exist in the repository yet. Do NOT reuse the results below as if they were produced by this checkpoint; rerun the external evaluation commands in cross_farm_results.md to populate real numbers here."
+  "model_config": {
+    "checkpoint_path": "/sdb-disk/notebooks/team12/team-Sigmoid-crossfarm/checkpoints/farm_c_lr5e4/best.pt",
+    "checkpoint_name": "farm_c_lr5e4",
+    "input_size": 10,
+    "hidden_size": 32,
+    "num_layers": 2,
+    "trained_epoch": 0,
+    "best_val_loss": 1.3349884762821427
   },
-  "superseded_results": {
-    "checkpoint_used": "checkpoints/farm_c_final/best.pt",
-    "why_superseded": "This checkpoint used an 11-feature configuration (power_residual included) that is incompatible with the strict 10-feature Farm A/B exports. It is NOT the designated cross-farm checkpoint.",
-    "model": {
-      "architecture": "GRU",
-      "bidirectional": false,
-      "input_size": 10,
-      "hidden_size": 32,
-      "num_layers": 2,
-      "dropout": 0.3
+  "scaler": {
+    "scaler_file": "/sdb-disk/notebooks/team12/team-Sigmoid-crossfarm/data/processed/CARE_Farm_C/sequences/scaler_stats.npz",
+    "feature_names": [
+      "wind_speed_mps",
+      "pitch_angle_deg",
+      "yaw_misalignment_deg",
+      "gearbox_oil_rise_C",
+      "gearbox_bearing_hotspot_over_oil_C",
+      "generator_rotor_speed_ratio",
+      "grid_power_factor",
+      "grid_current_imbalance",
+      "grid_voltage_imbalance",
+      "grid_frequency_deviation_Hz"
+    ],
+    "mean": [
+      8.49850845336914,
+      3.049917459487915,
+      3.029179573059082,
+      44.68880844116211,
+      -12.286876678466797,
+      118.78486633300781,
+      0.9761483669281006,
+      0.013973221182823181,
+      0.0011887639993801713,
+      0.08707359433174133
+    ],
+    "std": [
+      3.9115583896636963,
+      7.570308685302734,
+      2.3394851684570312,
+      91.55029296875,
+      91.14722442626953,
+      0.9713556170463562,
+      0.09220593422651291,
+      0.015517997555434704,
+      0.0007410123944282532,
+      0.08439493179321289
+    ],
+    "source_farm": "C",
+    "source_split": "train",
+    "fit_mask_policy": "real_and_physical_valid_timesteps_only",
+    "note": "Scaler fit on Farm C train only; reused unchanged on Farm A and Farm B (no target-domain refit)."
+  },
+  "frozen_threshold": 0.47500000000000003,
+  "frozen_threshold_selection_method": "validation F1",
+  "frozen_threshold_comparison_operator": ">=",
+  "frozen_threshold_val_f1": 0.1597,
+  "results_table": [
+    {
+      "split": "Farm C test",
+      "role": "Source-domain test",
+      "roc_auc": 0.336,
+      "pr_auc": 0.0273,
+      "precision": 0.0275,
+      "recall": 0.5795,
+      "f1": 0.0524,
+      "n_valid_timesteps": 290793,
+      "n_positive_labels": 10611,
+      "positive_rate": 0.0365,
+      "frozen_threshold": 0.47500000000000003
     },
-    "threshold_selection": {
-      "method": "maximum F1 on Farm C validation split",
-      "frozen_threshold": 0.475,
-      "applied_to": ["farm_c_test", "farm_a_external_test", "farm_b_external_test"],
-      "tuned_on_farm_a_or_b": false
+    {
+      "split": "Farm A test",
+      "role": "Zero-shot target",
+      "roc_auc": 0.4672,
+      "pr_auc": 0.0526,
+      "precision": 0.0608,
+      "recall": 0.2431,
+      "f1": 0.0972,
+      "n_valid_timesteps": 622715,
+      "n_positive_labels": 34934,
+      "positive_rate": 0.0561,
+      "frozen_threshold": 0.47500000000000003
     },
-    "preprocessing": {
-      "scaler": "frozen Farm C scaler, reused unchanged on Farm A/B",
-      "clipping_policy": "|x| > 10 clipped to [-10, 10]",
-      "valid_timestep_selection": "dataset mask",
-      "farm_a_b_retrained": false
-    },
-    "results": {
-      "farm_c_test": {
-        "role": "source-domain test",
-        "n_timesteps": 290793,
-        "n_positive": 10611,
-        "positive_rate": 0.03648987424043908,
-        "roc_auc": 0.47512994402770503,
-        "pr_auc": 0.03799941531016279,
-        "threshold": 0.475,
-        "precision": 0.028658040857276298,
-        "recall": 0.6245405711054566,
-        "f1": 0.054801430609249344
-      },
-      "farm_a_external_test": {
-        "role": "zero-shot external evaluation",
-        "n_timesteps": 622715,
-        "n_positive": 34934,
-        "positive_rate": 0.056099,
-        "roc_auc": 0.427255,
-        "pr_auc": 0.048552,
-        "threshold": 0.475,
-        "precision": 0.039987,
-        "recall": 0.045772,
-        "f1": 0.042684
-      },
-      "farm_b_external_test": {
-        "role": "zero-shot external evaluation",
-        "n_timesteps": 1214700,
-        "n_positive": 25244,
-        "positive_rate": 0.020782,
-        "roc_auc": 0.489700,
-        "pr_auc": 0.020006,
-        "threshold": 0.475,
-        "precision": 0.031170,
-        "recall": 0.008160,
-        "f1": 0.012934
-      }
+    {
+      "split": "Farm B test",
+      "role": "Zero-shot target",
+      "roc_auc": 0.486,
+      "pr_auc": 0.0217,
+      "precision": 0.1018,
+      "recall": 0.0044,
+      "f1": 0.0084,
+      "n_valid_timesteps": 1214700,
+      "n_positive_labels": 25244,
+      "positive_rate": 0.0208,
+      "frozen_threshold": 0.47500000000000003
     }
+  ],
+  "asset_breakdown": {
+    "Farm C test (source)": [
+      {
+        "split": "Farm C test",
+        "asset_id": 16,
+        "n": 104636,
+        "n_positive": 4012,
+        "positive_rate": 0.0383,
+        "roc_auc": 0.4512,
+        "pr_auc": 0.0352,
+        "precision": 0.0386,
+        "recall": 0.994,
+        "f1": 0.0744
+      },
+      {
+        "split": "Farm C test",
+        "asset_id": 23,
+        "n": 122704,
+        "n_positive": 2088,
+        "positive_rate": 0.017,
+        "roc_auc": 0.4142,
+        "pr_auc": 0.0195,
+        "precision": 0.0174,
+        "recall": 0.9943,
+        "f1": 0.0341
+      },
+      {
+        "split": "Farm C test",
+        "asset_id": 56,
+        "n": 63453,
+        "n_positive": 4511,
+        "positive_rate": 0.0711,
+        "roc_auc": 0.5667,
+        "pr_auc": 0.0878,
+        "precision": 0.0744,
+        "recall": 0.0188,
+        "f1": 0.0301
+      },
+      {
+        "split": "Farm C test",
+        "asset_id": "ALL",
+        "n": 290793,
+        "n_positive": 10611,
+        "positive_rate": 0.0365,
+        "roc_auc": 0.336,
+        "pr_auc": 0.0273,
+        "precision": 0.0275,
+        "recall": 0.5795,
+        "f1": 0.0524
+      }
+    ],
+    "Farm A test (zero-shot)": [
+      {
+        "split": "Farm A test",
+        "asset_id": 0,
+        "n": 138848,
+        "n_positive": 10822,
+        "positive_rate": 0.0779,
+        "roc_auc": 0.3722,
+        "pr_auc": 0.068,
+        "precision": 0.0601,
+        "recall": 0.0876,
+        "f1": 0.0713
+      },
+      {
+        "split": "Farm A test",
+        "asset_id": 10,
+        "n": 158420,
+        "n_positive": 7903,
+        "positive_rate": 0.0499,
+        "roc_auc": 0.5935,
+        "pr_auc": 0.0646,
+        "precision": 0.0731,
+        "recall": 0.6346,
+        "f1": 0.1311
+      },
+      {
+        "split": "Farm A test",
+        "asset_id": 11,
+        "n": 109828,
+        "n_positive": 3144,
+        "positive_rate": 0.0286,
+        "roc_auc": 0.5553,
+        "pr_auc": 0.0302,
+        "precision": 0.0346,
+        "recall": 0.4253,
+        "f1": 0.0641
+      },
+      {
+        "split": "Farm A test",
+        "asset_id": 13,
+        "n": 82843,
+        "n_positive": 5214,
+        "positive_rate": 0.0629,
+        "roc_auc": 0.5278,
+        "pr_auc": 0.0703,
+        "precision": 0.0763,
+        "recall": 0.219,
+        "f1": 0.1132
+      },
+      {
+        "split": "Farm A test",
+        "asset_id": 21,
+        "n": 132776,
+        "n_positive": 7851,
+        "positive_rate": 0.0591,
+        "roc_auc": 0.5019,
+        "pr_auc": 0.0554,
+        "precision": 0.0279,
+        "recall": 0.0066,
+        "f1": 0.0107
+      },
+      {
+        "split": "Farm A test",
+        "asset_id": "ALL",
+        "n": 622715,
+        "n_positive": 34934,
+        "positive_rate": 0.0561,
+        "roc_auc": 0.4672,
+        "pr_auc": 0.0526,
+        "precision": 0.0608,
+        "recall": 0.2431,
+        "f1": 0.0972
+      }
+    ],
+    "Farm B test (zero-shot)": [
+      {
+        "split": "Farm B test",
+        "asset_id": 0,
+        "n": 22809,
+        "n_positive": 0,
+        "positive_rate": 0.0,
+        "roc_auc": NaN,
+        "pr_auc": NaN,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 2,
+        "n": 230832,
+        "n_positive": 0,
+        "positive_rate": 0.0,
+        "roc_auc": NaN,
+        "pr_auc": NaN,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 5,
+        "n": 33144,
+        "n_positive": 0,
+        "positive_rate": 0.0,
+        "roc_auc": NaN,
+        "pr_auc": NaN,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 6,
+        "n": 161044,
+        "n_positive": 5058,
+        "positive_rate": 0.0314,
+        "roc_auc": 0.4479,
+        "pr_auc": 0.0271,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 7,
+        "n": 226590,
+        "n_positive": 4266,
+        "positive_rate": 0.0188,
+        "roc_auc": 0.1909,
+        "pr_auc": 0.0109,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 11,
+        "n": 105675,
+        "n_positive": 4997,
+        "positive_rate": 0.0473,
+        "roc_auc": 0.4827,
+        "pr_auc": 0.0515,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 12,
+        "n": 203549,
+        "n_positive": 2993,
+        "positive_rate": 0.0147,
+        "roc_auc": 0.416,
+        "pr_auc": 0.0352,
+        "precision": 0.2207,
+        "recall": 0.0371,
+        "f1": 0.0635
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 13,
+        "n": 125094,
+        "n_positive": 2921,
+        "positive_rate": 0.0234,
+        "roc_auc": 0.4471,
+        "pr_auc": 0.0248,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": 14,
+        "n": 105963,
+        "n_positive": 5009,
+        "positive_rate": 0.0473,
+        "roc_auc": 0.5592,
+        "pr_auc": 0.0516,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0
+      },
+      {
+        "split": "Farm B test",
+        "asset_id": "ALL",
+        "n": 1214700,
+        "n_positive": 25244,
+        "positive_rate": 0.0208,
+        "roc_auc": 0.486,
+        "pr_auc": 0.0217,
+        "precision": 0.1018,
+        "recall": 0.0044,
+        "f1": 0.0084
+      }
+    ]
   },
-  "notes": [
-    "Farm A and Farm B are external test-only zero-shot evaluations; no retraining occurred on either farm.",
-    "No threshold tuning was performed on Farm A or Farm B; any evaluation must reuse the threshold frozen from Farm C validation.",
-    "The 'superseded_results' above were produced with the wrong checkpoint (farm_c_final, 11-feature) and must not be cited as the project's designated cross-farm result.",
-    "The designated checkpoint (farm_c_lr5e4, 10-feature) has not yet been evaluated on Farm A/B in this repository; rerun is required before reporting final cross-farm numbers."
-  ]
+  "superseded_prior_result": {
+    "checkpoint_name": "farm_c_final",
+    "checkpoint_path": "checkpoints/farm_c_final/best.pt",
+    "verified_input_size": 10,
+    "config_as_originally_reported": {
+      "hidden_size": 32,
+      "num_layers": 2,
+      "dropout": 0.3,
+      "bidirectional": false
+    },
+    "note_on_original_writeup_error": "The original writeup for this run stated farm_c_final was 'also previously referred to as' the 11-feature farm_c_power_residual checkpoint. This is incorrect: farm_c_final's checkpoint weights were directly verified (infer_model_shape) to have input_size=10, not 11. Corrected here rather than repeated.",
+    "farm_c_test_result": {
+      "role": "Source-domain test",
+      "threshold": 0.475,
+      "roc_auc": 0.47513,
+      "pr_auc": 0.037999,
+      "precision": 0.028658,
+      "recall": 0.624541,
+      "f1": 0.054801,
+      "n_valid_timesteps": 290793,
+      "n_positive_labels": 10611,
+      "positive_rate": 0.03649
+    },
+    "farm_a_b_zero_shot": "Not evaluated for this checkpoint; superseded before Farm A/B were run.",
+    "source": "artifacts/cross_farm_results.md as committed in PR #23/#24 (commits ddf0264, 1b49625), prior to this run."
+  }
 }
