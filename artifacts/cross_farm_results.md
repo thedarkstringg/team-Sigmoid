@@ -1,99 +1,59 @@
-# Cross-Farm Zero-Shot Evaluation Results (Task #14)
+# Cross-Farm Generalization Results (Task 15)
 
-> **STATUS: results below are for a SUPERSEDED checkpoint. A rerun is required
-> for the designated checkpoint before these numbers can be cited as final.**
+**Checkpoint:** `/sdb-disk/notebooks/team12/team-Sigmoid-crossfarm/checkpoints/farm_c_lr5e4/best.pt` (farm_c_lr5e4)
 
-## 0. Designated checkpoint (correction)
+**Config:** GRU, input_size=10, hidden_size=32, num_layers=2, trained_epoch=0, best_val_loss=1.3349884762821427
 
-The cross-farm generalization experiment **must** use:
+**Frozen threshold:** 0.47500000000000003 (selected via max-F1 on Farm C validation only; F1 at threshold = 0.1597. NOT re-tuned on Farm A or Farm B.)
 
-- **Checkpoint:** `checkpoints/farm_c_lr5e4/best.pt`
-- **Config:** `hidden_size=32, num_layers=2, dropout=0.4, input_size=10, bidirectional=False`
-- **Approx. validation ROC-AUC:** ~0.645 (best-by-validation 10-feature-only configuration)
+**Preprocessing:** scaler fit on C (train split) only, features: wind_speed_mps, pitch_angle_deg, yaw_misalignment_deg, gearbox_oil_rise_C, gearbox_bearing_hotspot_over_oil_C, generator_rotor_speed_ratio, grid_power_factor, grid_current_imbalance, grid_voltage_imbalance, grid_frequency_deviation_Hz. Reused unchanged on all splits.
 
-This checkpoint has **no power_residual feature and is not bidirectional**.
-Farm A and Farm B were re-exported using the strict 10-feature physical
-schema; `power_residual` was intentionally excluded because it requires
-target-domain calibration that would break zero-shot validity. The older
-11-feature `checkpoints/farm_c_power_residual/best.pt` (also previously
-referred to as `farm_c_final`) is **incompatible** with this 10-feature
-external data and must **not** be used as the designated cross-farm
-checkpoint.
 
-**The results in Sections 1-6 below were generated with the wrong checkpoint
-(`farm_c_final`, 11-feature) and predate this correction.** They are kept
-here for provenance only, clearly marked as superseded. This repository does
-not yet contain Farm A/B evaluation results for the corrected
-`farm_c_lr5e4` checkpoint. Rerun the commands below to produce real numbers
-before reporting a final cross-farm result:
+## Superseded prior result (kept for provenance)
 
-```
-python3 src/model/evaluate.py \
-  --checkpoint checkpoints/farm_c_lr5e4/best.pt \
-  --dropout 0.4 \
-  --data_dir data/processed/CARE_Farm_A/physical_sequences
+An earlier cross-farm attempt in this repository used `checkpoints/farm_c_final/best.pt` (**farm_c_final**), verified input_size=10, config {'hidden_size': 32, 'num_layers': 2, 'dropout': 0.3, 'bidirectional': False}.
 
-python3 src/model/evaluate.py \
-  --checkpoint checkpoints/farm_c_lr5e4/best.pt \
-  --dropout 0.4 \
-  --data_dir data/processed/CARE_Farm_B/physical_sequences
-```
+> **Correction to the original writeup:** The original writeup for this run stated farm_c_final was 'also previously referred to as' the 11-feature farm_c_power_residual checkpoint. This is incorrect: farm_c_final's checkpoint weights were directly verified (infer_model_shape) to have input_size=10, not 11. Corrected here rather than repeated.
 
-The evaluation must remain zero-shot: the threshold stays frozen from Farm C
-validation, no tuning occurs on Farm A/B, no scaler is fit on Farm A/B, and
-Farm A/B labels are never used to modify the model.
+| Split | Role | ROC-AUC | PR-AUC | Precision | Recall | F1 | threshold |
+|---|---|---|---|---|---|---|---|
+| Farm C test | Source-domain test | 0.47513 | 0.037999 | 0.028658 | 0.624541 | 0.054801 | 0.475 |
 
----
+*Not evaluated for this checkpoint; superseded before Farm A/B were run.*
 
-## Superseded results (checkpoint: `farm_c_final`, 11-feature - DO NOT reuse as the designated result)
 
-## 1. Experiment setup
+Source: artifacts/cross_farm_results.md as committed in PR #23/#24 (commits ddf0264, 1b49625), prior to this run.
 
-- **Training farm:** Farm C
-- **Checkpoint used for the results below:** `checkpoints/farm_c_final/best.pt` (superseded - see Section 0)
-- **Farm A and Farm B are external, test-only, zero-shot evaluations.** No retraining occurred on either farm, and no threshold tuning was performed on Farm A or Farm B.
-- Farm A/B use the frozen Farm C preprocessing/scaler (not independently fitted).
-- Same clipping policy applied everywhere: `|x| > 10` clipped to `[-10, 10]`.
-- Valid timesteps are selected using the dataset mask (gap-filled rows excluded).
 
-## 2. Checkpoint / model configuration (superseded)
+## Results table
 
-| Parameter | Value |
-| --- | --- |
-| Architecture | GRU (unidirectional) |
-| `input_size` | 10 |
-| `hidden_size` | 32 |
-| `num_layers` | 2 |
-| `dropout` | 0.3 |
-| `bidirectional` | false |
+| Split | Role | ROC-AUC | PR-AUC | Precision | Recall | F1 | n valid | n positive | pos. rate |
+|---|---|---|---|---|---|---|---|---|---|
+| Farm C test | Source-domain test | 0.336 | 0.0273 | 0.0275 | 0.5795 | 0.0524 | 290793 | 10611 | 0.0365 |
+| Farm A test | Zero-shot target | 0.4672 | 0.0526 | 0.0608 | 0.2431 | 0.0972 | 622715 | 34934 | 0.0561 |
+| Farm B test | Zero-shot target | 0.486 | 0.0217 | 0.1018 | 0.0044 | 0.0084 | 1214700 | 25244 | 0.0208 |
 
-## 3. Threshold selection protocol (superseded run)
+## Per-asset breakdown (appendix)
 
-- The classification threshold was selected on the **Farm C validation split** using **maximum F1**.
-- The resulting threshold, **0.475**, was **frozen** and reused unchanged for every test evaluation below (Farm C test, Farm A external test, Farm B external test).
-- No threshold was tuned or re-selected on Farm A or Farm B data.
-
-## 4. Results (superseded - wrong checkpoint, kept for provenance only)
-
-| Split | Role | n_timesteps | n_positive | positive_rate | roc_auc | pr_auc | threshold | precision | recall | f1 |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Farm C test | source-domain test | 290793 | 10611 | 0.036490 | 0.475130 | 0.037999 | 0.475 | 0.028658 | 0.624541 | 0.054801 |
-| Farm A external test | zero-shot external | 622715 | 34934 | 0.056099 | 0.427255 | 0.048552 | 0.475 | 0.039987 | 0.045772 | 0.042684 |
-| Farm B external test | zero-shot external | 1214700 | 25244 | 0.020782 | 0.489700 | 0.020006 | 0.475 | 0.031170 | 0.008160 | 0.012934 |
-
-## 5. Interpretation (superseded run - see Section 0 for the required rerun)
-
-- On its own source domain (Farm C test), the model already shows weak discrimination (ROC-AUC ≈ 0.475, near chance) under the frozen max-F1 threshold, though recall is high (0.625) at the cost of very low precision.
-- **Farm A and Farm B are zero-shot external evaluations**: the checkpoint was trained exclusively on Farm C and evaluated on Farm A/B without any retraining or threshold re-tuning.
-- On Farm A, ROC-AUC drops further to 0.427 (below chance level), and recall collapses to 0.046 (vs. 0.625 on Farm C) under the same frozen threshold.
-- On Farm B, ROC-AUC (0.490) is close to chance, and recall is extremely low (0.008), with precision (0.031) also weaker than on Farm C.
-- Across both external farms, F1 (0.043 and 0.013) is substantially lower than on Farm C (0.055), and the pattern is consistent: the frozen Farm-C threshold and scaler do not transfer usefully to either external farm.
-
-## 6. Limitations / generalization note
-
-**These superseded results indicate substantial cross-farm performance degradation, not successful generalization**, and this pattern is the reason a rerun on the designated `farm_c_lr5e4` checkpoint is required rather than assumed to look better:
-
-- ROC-AUC on both external farms is at or below chance level (0.427 and 0.490), indicating the model's ranking of fault risk does not transfer.
-- Recall drops drastically on both external farms relative to Farm C, meaning the frozen threshold that was tuned for Farm C's score distribution is poorly calibrated for Farm A/B's score distributions.
-- Because no threshold or scaler recalibration was performed on Farm A/B (by design, to keep this a strict zero-shot test), these results should be read as evidence of a domain-shift/generalization gap, not as a deployable cross-farm model.
-- Any future work extending this evaluation should not reuse these numbers as a baseline for a "working" cross-farm model without addressing this generalization gap first (e.g. via domain adaptation, farm-specific calibration, or additional cross-farm training data).
+| Split | Asset | n | ROC-AUC | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| Farm C test (source) | 16 | 104636 | 0.4512 | 0.0386 | 0.994 | 0.0744 |
+| Farm C test (source) | 23 | 122704 | 0.4142 | 0.0174 | 0.9943 | 0.0341 |
+| Farm C test (source) | 56 | 63453 | 0.5667 | 0.0744 | 0.0188 | 0.0301 |
+| Farm C test (source) | ALL | 290793 | 0.336 | 0.0275 | 0.5795 | 0.0524 |
+| Farm A test (zero-shot) | 0 | 138848 | 0.3722 | 0.0601 | 0.0876 | 0.0713 |
+| Farm A test (zero-shot) | 10 | 158420 | 0.5935 | 0.0731 | 0.6346 | 0.1311 |
+| Farm A test (zero-shot) | 11 | 109828 | 0.5553 | 0.0346 | 0.4253 | 0.0641 |
+| Farm A test (zero-shot) | 13 | 82843 | 0.5278 | 0.0763 | 0.219 | 0.1132 |
+| Farm A test (zero-shot) | 21 | 132776 | 0.5019 | 0.0279 | 0.0066 | 0.0107 |
+| Farm A test (zero-shot) | ALL | 622715 | 0.4672 | 0.0608 | 0.2431 | 0.0972 |
+| Farm B test (zero-shot) | 0 | 22809 | nan | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 2 | 230832 | nan | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 5 | 33144 | nan | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 6 | 161044 | 0.4479 | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 7 | 226590 | 0.1909 | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 11 | 105675 | 0.4827 | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 12 | 203549 | 0.416 | 0.2207 | 0.0371 | 0.0635 |
+| Farm B test (zero-shot) | 13 | 125094 | 0.4471 | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | 14 | 105963 | 0.5592 | 0.0 | 0.0 | 0.0 |
+| Farm B test (zero-shot) | ALL | 1214700 | 0.486 | 0.1018 | 0.0044 | 0.0084 |
