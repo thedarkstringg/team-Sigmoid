@@ -1,0 +1,529 @@
+{
+  "source_farm": "C",
+  "source_split_used_for_reference": "train",
+  "note_on_method": "Compression factor (not standardized mean difference) is the primary shift statistic reported here. See module docstring: raw-value SMD would understate the shift for features where Farm C's own raw variance is itself inflated by an apparent data-quality issue, since that inflation dominates the pooled denominator. Compression factor instead measures what the model actually receives after the frozen scaler is applied, which has no such blind spot.",
+  "per_feature": [
+    {
+      "feature": "wind_speed_mps",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 8.49850845336914,
+        "raw_std": 3.9115583896636963,
+        "raw_median": 7.533999919891357,
+        "raw_q01": 2.9770002365112305,
+        "raw_q99": 19.83799934387207,
+        "raw_min": 1.3530001640319824,
+        "raw_max": 24.381999969482422,
+        "scaled_mean": -3.758754019145272e-08,
+        "scaled_std": 1.0,
+        "scaled_min": -1.8267676830291748,
+        "scaled_max": 4.06065559387207
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 7.9835052490234375,
+        "raw_std": 3.2656116485595703,
+        "raw_median": 7.300000190734863,
+        "raw_q01": 3.5999999046325684,
+        "raw_q99": 17.600000381469727,
+        "raw_min": 2.6999998092651367,
+        "raw_max": 21.799999237060547,
+        "scaled_mean": -0.13166192173957825,
+        "scaled_std": 0.8348620533943176,
+        "scaled_min": -1.4824037551879883,
+        "scaled_max": 3.4005603790283203
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 9.321409225463867,
+        "raw_std": 3.997239112854004,
+        "raw_median": 8.579999923706055,
+        "raw_q01": 3.440000057220459,
+        "raw_q99": 20.459999084472656,
+        "raw_min": 2.2899999618530273,
+        "raw_max": 28.979999542236328,
+        "scaled_mean": 0.21037669479846954,
+        "scaled_std": 1.021904468536377,
+        "scaled_min": -1.5872212648391724,
+        "scaled_max": 5.236145973205566
+      },
+      "farm_a_compression_factor": 1.1978026740277359,
+      "farm_b_compression_factor": 0.9785650525946425
+    },
+    {
+      "feature": "pitch_angle_deg",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 3.049917459487915,
+        "raw_std": 7.570308685302734,
+        "raw_median": -1.3556668758392334,
+        "raw_q01": -1.999999761581421,
+        "raw_q99": 24.420665740966797,
+        "raw_min": -2.000333547592163,
+        "raw_max": 81.4173355102539,
+        "scaled_mean": 0.0,
+        "scaled_std": 1.0,
+        "scaled_min": -0.6671129465103149,
+        "scaled_max": 10.351944923400879
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 0.18015742301940918,
+        "raw_std": 4.251364707946777,
+        "raw_median": -1.3999998569488525,
+        "raw_q01": -2.200000047683716,
+        "raw_q99": 15.600000381469727,
+        "raw_min": -2.299999952316284,
+        "raw_max": 76.69999694824219,
+        "scaled_mean": -0.37908098101615906,
+        "scaled_std": 0.5615839958190918,
+        "scaled_min": -0.706697404384613,
+        "scaled_max": 9.72880744934082
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 4.341001987457275,
+        "raw_std": 6.932682514190674,
+        "raw_median": 0.7300000190734863,
+        "raw_q01": -0.019999980926513672,
+        "raw_q99": 24.510000228881836,
+        "raw_min": -0.06999993324279785,
+        "raw_max": 84.77999877929688,
+        "scaled_mean": 0.17054583132266998,
+        "scaled_std": 0.9157727360725403,
+        "scaled_min": -0.41212552785873413,
+        "scaled_max": 10.796135902404785
+      },
+      "farm_a_compression_factor": 1.7806775254367098,
+      "farm_b_compression_factor": 1.0919739806719775
+    },
+    {
+      "feature": "yaw_misalignment_deg",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 3.029179573059082,
+        "raw_std": 2.3394851684570312,
+        "raw_median": 2.621999979019165,
+        "raw_q01": 0.04819989204406738,
+        "raw_q99": 8.71399974822998,
+        "raw_min": 2.384185791015625e-07,
+        "raw_max": 89.51200103759766,
+        "scaled_mean": 1.7619160574966486e-09,
+        "scaled_std": 0.9999999403953552,
+        "scaled_min": -1.2948060035705566,
+        "scaled_max": 36.96660232543945
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 7.633481025695801,
+        "raw_std": 8.0971097946167,
+        "raw_median": 4.800000190734863,
+        "raw_q01": 0.09999990463256836,
+        "raw_q99": 34.400001525878906,
+        "raw_min": 2.384185791015625e-07,
+        "raw_max": 177.10000610351562,
+        "scaled_mean": 1.9680832624435425,
+        "scaled_std": 3.4610650539398193,
+        "scaled_min": -1.2948060035705566,
+        "scaled_max": 74.4056167602539
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 4.914802074432373,
+        "raw_std": 4.8920793533325195,
+        "raw_median": 3.5799999237060547,
+        "raw_q01": 0.059999942779541016,
+        "raw_q99": 22.689998626708984,
+        "raw_min": 2.384185791015625e-07,
+        "raw_max": 140.60000610351562,
+        "scaled_mean": 0.8059989213943481,
+        "scaled_std": 2.091092348098755,
+        "scaled_min": -1.2948060035705566,
+        "scaled_max": 58.803890228271484
+      },
+      "farm_a_compression_factor": 0.288928403371579,
+      "farm_b_compression_factor": 0.47821895618776067
+    },
+    {
+      "feature": "gearbox_oil_rise_C",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 44.68880844116211,
+        "raw_std": 91.55028533935547,
+        "raw_median": 22.8174991607666,
+        "raw_q01": 9.639999389648438,
+        "raw_q99": 423.8909606933594,
+        "raw_min": 4.340000152587891,
+        "raw_max": 428.22198486328125,
+        "scaled_mean": 0.0,
+        "scaled_std": 0.9999998807907104,
+        "scaled_min": -0.4407283365726471,
+        "scaled_max": 4.189316749572754
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 29.69747543334961,
+        "raw_std": 5.679441928863525,
+        "raw_median": 30.0,
+        "raw_q01": 16.0,
+        "raw_q99": 42.0,
+        "raw_min": 7.0,
+        "raw_max": 48.0,
+        "scaled_mean": -0.16374970972537994,
+        "scaled_std": 0.06203630194067955,
+        "scaled_min": -0.41167327761650085,
+        "scaled_max": 0.03616800531744957
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 42.27091979980469,
+        "raw_std": 5.101595401763916,
+        "raw_median": 41.52000045776367,
+        "raw_q01": 29.85000228881836,
+        "raw_q99": 54.45000076293945,
+        "raw_min": 10.5,
+        "raw_max": 59.09000015258789,
+        "scaled_mean": -0.026410482823848724,
+        "scaled_std": 0.05572450906038284,
+        "scaled_min": -0.3734429180622101,
+        "scaled_max": 0.1573036164045334
+      },
+      "farm_a_compression_factor": 16.119593991212138,
+      "farm_b_compression_factor": 17.945425035802543
+    },
+    {
+      "feature": "gearbox_bearing_hotspot_over_oil_C",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": -12.28687858581543,
+        "raw_std": 91.14722442626953,
+        "raw_median": 9.57400131225586,
+        "raw_q01": -392.0069885253906,
+        "raw_q99": 15.036001205444336,
+        "raw_min": -405.20703125,
+        "raw_max": 15.77650260925293,
+        "scaled_mean": -1.879377009572636e-08,
+        "scaled_std": 1.0,
+        "scaled_min": -4.3108296394348145,
+        "scaled_max": 0.3078906536102295
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 6.192820072174072,
+        "raw_std": 2.702578067779541,
+        "raw_median": 5.0,
+        "raw_q01": 2.0000009536743164,
+        "raw_q99": 12.000001907348633,
+        "raw_min": -4.0,
+        "raw_max": 18.0,
+        "scaled_mean": 0.20274557173252106,
+        "scaled_std": 0.029650693759322166,
+        "scaled_min": 0.09091749042272568,
+        "scaled_max": 0.33228522539138794
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 6.742864608764648,
+        "raw_std": 1.3745108842849731,
+        "raw_median": 7.180000305175781,
+        "raw_q01": 3.940000534057617,
+        "raw_q99": 8.770000457763672,
+        "raw_min": 0.0,
+        "raw_max": 10.760000228881836,
+        "scaled_mean": 0.20878025889396667,
+        "scaled_std": 0.015080117620527744,
+        "scaled_min": 0.13480253517627716,
+        "scaled_max": 0.25285330414772034
+      },
+      "farm_a_compression_factor": 33.72602368487922,
+      "farm_b_compression_factor": 66.31248012540395
+    },
+    {
+      "feature": "generator_rotor_speed_ratio",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 118.78486633300781,
+        "raw_std": 0.9713556170463562,
+        "raw_median": 118.84126281738281,
+        "raw_q01": 118.0683364868164,
+        "raw_q99": 119.35148620605469,
+        "raw_min": 52.4586181640625,
+        "raw_max": 132.44361877441406,
+        "scaled_mean": 2.472555479471339e-06,
+        "scaled_std": 0.9999999403953552,
+        "scaled_min": -68.28215026855469,
+        "scaled_max": 14.06153678894043
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 113.00209045410156,
+        "raw_std": 0.43311983346939087,
+        "raw_median": 112.93243408203125,
+        "raw_q01": 112.46154022216797,
+        "raw_q99": 113.75206756591797,
+        "raw_min": 112.06521606445312,
+        "raw_max": 132.26470947265625,
+        "scaled_mean": -5.953314781188965,
+        "scaled_std": 0.4458921551704407,
+        "scaled_min": -6.917806625366211,
+        "scaled_max": 13.877351760864258
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 115.51586151123047,
+        "raw_std": 0.1999986618757248,
+        "raw_median": 115.52233123779297,
+        "raw_q01": 115.28783416748047,
+        "raw_q99": 115.76326751708984,
+        "raw_min": 102.9103775024414,
+        "raw_max": 126.910888671875,
+        "scaled_mean": -3.3654041290283203,
+        "scaled_std": 0.20589643716812134,
+        "scaled_min": -16.342613220214844,
+        "scaled_max": 8.36565113067627
+      },
+      "farm_a_compression_factor": 2.2426947601662865,
+      "farm_b_compression_factor": 4.856810607089168
+    },
+    {
+      "feature": "grid_power_factor",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 0.9761484265327454,
+        "raw_std": 0.09220593422651291,
+        "raw_median": 0.9962062239646912,
+        "raw_q01": 0.45115965604782104,
+        "raw_q99": 0.9999961853027344,
+        "raw_min": 0.0003050565719604492,
+        "raw_max": 1.0,
+        "scaled_mean": -1.1746106309828974e-09,
+        "scaled_std": 1.0,
+        "scaled_min": -10.58330249786377,
+        "scaled_max": 0.2586778402328491
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 0.9343974590301514,
+        "raw_std": 0.10848592221736908,
+        "raw_median": 0.9773657321929932,
+        "raw_q01": 0.45805424451828003,
+        "raw_q99": 0.995652973651886,
+        "raw_min": 0.00965207815170288,
+        "raw_max": 1.0,
+        "scaled_mean": -0.4528007507324219,
+        "scaled_std": 1.1765612363815308,
+        "scaled_min": -10.481931686401367,
+        "scaled_max": 0.2586778402328491
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 0.9339509010314941,
+        "raw_std": 0.18371200561523438,
+        "raw_median": 0.9977019429206848,
+        "raw_q01": 0.054390013217926025,
+        "raw_q99": 0.9999996423721313,
+        "raw_min": 0.00010961294174194336,
+        "raw_max": 1.0,
+        "scaled_mean": -0.4576437175273895,
+        "scaled_std": 1.9924099445343018,
+        "scaled_min": -10.58542251586914,
+        "scaled_max": 0.2586778402328491
+      },
+      "farm_a_compression_factor": 0.8499345117602735,
+      "farm_b_compression_factor": 0.5019047424167199
+    },
+    {
+      "feature": "grid_current_imbalance",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 0.013973220251500607,
+        "raw_std": 0.015517997555434704,
+        "raw_median": 0.006177114322781563,
+        "raw_q01": 0.001500600017607212,
+        "raw_q99": 0.07798488438129425,
+        "raw_min": 6.990600377321243e-05,
+        "raw_max": 0.14763563871383667,
+        "scaled_mean": -1.1746106309828974e-08,
+        "scaled_std": 1.0,
+        "scaled_min": -0.8959477543830872,
+        "scaled_max": 8.613380432128906
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 0.045019712299108505,
+        "raw_std": 0.041818734258413315,
+        "raw_median": 0.03023812547326088,
+        "raw_q01": 0.00784775335341692,
+        "raw_q99": 0.19557936489582062,
+        "raw_min": 0.003022974357008934,
+        "raw_max": 0.3186812996864319,
+        "scaled_mean": 2.000676393508911,
+        "scaled_std": 2.694854259490967,
+        "scaled_min": -0.7056481838226318,
+        "scaled_max": 19.635784149169922
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 0.004827835131436586,
+        "raw_std": 0.006415289361029863,
+        "raw_median": 0.002009499818086624,
+        "raw_q01": 0.00024372432380914688,
+        "raw_q99": 0.02833637222647667,
+        "raw_min": 0.0,
+        "raw_max": 0.08142199367284775,
+        "scaled_mean": -0.5893406271934509,
+        "scaled_std": 0.41340959072113037,
+        "scaled_min": -0.9004526138305664,
+        "scaled_max": 4.346487045288086
+      },
+      "farm_a_compression_factor": 0.37107758108926114,
+      "farm_b_compression_factor": 2.418908565366497
+    },
+    {
+      "feature": "grid_voltage_imbalance",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 0.0011887641157954931,
+        "raw_std": 0.0007410123944282532,
+        "raw_median": 0.0010281790746375918,
+        "raw_q01": 0.0001219363184645772,
+        "raw_q99": 0.003575705923140049,
+        "raw_min": 0.0,
+        "raw_max": 0.016360096633434296,
+        "scaled_mean": 8.92704079547002e-08,
+        "scaled_std": 1.0,
+        "scaled_min": -1.6042430400848389,
+        "scaled_max": 20.473791122436523
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 0.003776457393541932,
+        "raw_std": 0.0010729290079325438,
+        "raw_median": 0.0035956180654466152,
+        "raw_q01": 0.0020120723638683558,
+        "raw_q99": 0.007629789412021637,
+        "raw_min": 0.0010826116194948554,
+        "raw_max": 0.011471952311694622,
+        "scaled_mean": 3.492105484008789,
+        "scaled_std": 1.447923183441162,
+        "scaled_min": -0.1432531774044037,
+        "scaled_max": 13.877214431762695
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 0.0003817740362137556,
+        "raw_std": 0.00022101214563008398,
+        "raw_median": 0.0003364579752087593,
+        "raw_q01": 7.604912389069796e-05,
+        "raw_q99": 0.0008138669072650373,
+        "raw_min": 1.0415562428534031e-05,
+        "raw_max": 0.011023545637726784,
+        "scaled_mean": -1.0890370607376099,
+        "scaled_std": 0.2982569932937622,
+        "scaled_min": -1.5901871919631958,
+        "scaled_max": 13.272087097167969
+      },
+      "farm_a_compression_factor": 0.6906443735664075,
+      "farm_b_compression_factor": 3.3528132532841237
+    },
+    {
+      "feature": "grid_frequency_deviation_Hz",
+      "farm_c_train": {
+        "n_valid_timesteps": 1662785,
+        "raw_mean": 0.08707359433174133,
+        "raw_std": 0.08439493179321289,
+        "raw_median": 0.0860000029206276,
+        "raw_q01": 0.0020000040531158447,
+        "raw_q99": 0.17800000309944153,
+        "raw_min": 0.0,
+        "raw_max": 14.286999702453613,
+        "scaled_mean": 3.3476403871190996e-08,
+        "scaled_std": 1.0,
+        "scaled_min": -1.031739592552185,
+        "scaled_max": 168.25567626953125
+      },
+      "farm_a_test": {
+        "n_valid_timesteps": 622715,
+        "raw_mean": 0.001484306645579636,
+        "raw_std": 0.01209245715290308,
+        "raw_median": 0.0,
+        "raw_q01": 0.0,
+        "raw_q99": 0.10000000149011612,
+        "raw_min": 0.0,
+        "raw_max": 0.10000000149011612,
+        "scaled_mean": -1.014151930809021,
+        "scaled_std": 0.1432841569185257,
+        "scaled_min": -1.031739592552185,
+        "scaled_max": 0.15316568315029144
+      },
+      "farm_b_test": {
+        "n_valid_timesteps": 1214700,
+        "raw_mean": 0.10062723606824875,
+        "raw_std": 0.05602411553263664,
+        "raw_median": 0.10000000149011612,
+        "raw_q01": 0.0,
+        "raw_q99": 0.18000000715255737,
+        "raw_min": 0.0,
+        "raw_max": 0.1899999976158142,
+        "scaled_mean": 0.16059789061546326,
+        "scaled_std": 0.6638327240943909,
+        "scaled_min": -1.031739592552185,
+        "scaled_max": 1.2195804119110107
+      },
+      "farm_a_compression_factor": 6.979138667568254,
+      "farm_b_compression_factor": 1.506403591905194
+    }
+  ],
+  "ranked_by_worst_compression": [
+    {
+      "feature": "gearbox_bearing_hotspot_over_oil_C",
+      "farm_a_compression_factor": 33.73,
+      "farm_b_compression_factor": 66.31
+    },
+    {
+      "feature": "gearbox_oil_rise_C",
+      "farm_a_compression_factor": 16.12,
+      "farm_b_compression_factor": 17.95
+    },
+    {
+      "feature": "grid_frequency_deviation_Hz",
+      "farm_a_compression_factor": 6.98,
+      "farm_b_compression_factor": 1.51
+    },
+    {
+      "feature": "generator_rotor_speed_ratio",
+      "farm_a_compression_factor": 2.24,
+      "farm_b_compression_factor": 4.86
+    },
+    {
+      "feature": "grid_voltage_imbalance",
+      "farm_a_compression_factor": 0.69,
+      "farm_b_compression_factor": 3.35
+    },
+    {
+      "feature": "grid_current_imbalance",
+      "farm_a_compression_factor": 0.37,
+      "farm_b_compression_factor": 2.42
+    },
+    {
+      "feature": "pitch_angle_deg",
+      "farm_a_compression_factor": 1.78,
+      "farm_b_compression_factor": 1.09
+    },
+    {
+      "feature": "wind_speed_mps",
+      "farm_a_compression_factor": 1.2,
+      "farm_b_compression_factor": 0.98
+    },
+    {
+      "feature": "grid_power_factor",
+      "farm_a_compression_factor": 0.85,
+      "farm_b_compression_factor": 0.5
+    },
+    {
+      "feature": "yaw_misalignment_deg",
+      "farm_a_compression_factor": 0.29,
+      "farm_b_compression_factor": 0.48
+    }
+  ]
+}
