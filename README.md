@@ -101,10 +101,9 @@ a single CLI flag - this is documented explicitly, not hidden, in
 
 ## AI-assistance disclosure
 
-Team members used AI assistance (Claude) for code review, debugging
-support, and drafting portions of documentation and the paper from
-decisions made during development. All architecture, methodology, and
-result interpretation decisions were made and are understood by the
+Team members used AI assistance (Claude) for debugging
+support, and drafting portions of documentation. All architecture, methodology, code and
+result interpretation decisions were made, done and are understood by the
 authors independently of this assistance. See `report/report.tex`'s
 "Tools and Acknowledgements" section and `contribution_report.pdf` for
 full detail.
