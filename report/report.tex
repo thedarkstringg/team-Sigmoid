@@ -1,0 +1,260 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Early Fault Detection and Risk-Based Maintenance Prioritization\\
+for Wind Turbines Using Multi-Farm SCADA Data}
+
+\author{
+\IEEEauthorblockN{Huseynli, Emin}
+\IEEEauthorblockA{\textit{AI Academy} \\
+\textit{National Artificial Intelligence Center}\\
+Baku, Azerbaijan}
+\and
+\IEEEauthorblockN{Muradov, Ziyad}
+\IEEEauthorblockA{\textit{AI Academy} \\
+\textit{National Artificial Intelligence Center}\\
+Baku, Azerbaijan}
+\and
+\IEEEauthorblockN{Soltanaliyev, Kamal}
+\IEEEauthorblockA{\textit{AI Academy} \\
+\textit{National Artificial Intelligence Center}\\
+Baku, Azerbaijan}
+\and
+\IEEEauthorblockN{Yusifli, Ismayil}
+\IEEEauthorblockA{\textit{AI Academy} \\
+\textit{National Artificial Intelligence Center}\\
+Baku, Azerbaijan}
+}
+
+\maketitle
+
+\begin{abstract}
+% TODO (whoever finalizes, likely Kamal per the report-driving role):
+% write the final 150-200 word abstract once Results and Discussion are
+% complete. Draft below for reference/replacement.
+Reactive wind turbine maintenance, triggered only after a fault is
+formally logged, forgoes the opportunity for early intervention. This
+work investigates whether a recurrent neural network trained on SCADA
+sensor windows can detect an approaching fault early enough, and with
+sufficient calibrated confidence, to support risk-based maintenance
+prioritization across a multi-farm fleet, and whether such a model
+generalizes to turbines and farms it was not trained on. We frame the
+task as per-timestep risk regression using a Gated Recurrent Unit over a
+farm-agnostic physical feature representation, evaluate it against
+classical baselines and across multiple farms, and report an honest,
+evidenced account of where the approach succeeds and where domain shift
+between farms limits it.
+
+GitHub repository: \url{https://github.com/thedarkstringg/team-Sigmoid}
+(tag \texttt{v1.0-final}).
+\end{abstract}
+
+\begin{IEEEkeywords}
+wind turbine, fault detection, predictive maintenance, recurrent neural
+network, domain generalization, SCADA
+\end{IEEEkeywords}
+
+\section{Introduction}
+% TODO (owner: whole team, or assign one person - not yet claimed as of
+% this commit). Motivate the problem, state the research question, and
+% preview the paper's structure and headline finding.
+
+\section{Related Work}
+% TODO (owner: Ismayil, per team split). SCADA fault-detection literature
+% review, including comparison against the CARE-to-Compare ~48h benchmark
+% referenced in \cite{gueck2024}.
+
+\section{Method}
+\label{sec:method}
+
+\subsection{Task Framing}
+
+We frame early fault detection as a per-timestep risk regression problem
+rather than a single window-level classification. For an input SCADA
+window of shape $(144, F)$ --- 24 hours of 10-minute-resolution readings
+across $F$ features --- the model outputs a continuous risk score
+$S(t) \in [0,1]$ at every timestep $t$, rather than a single label for the
+whole window. This framing is required for the lead-time evaluation
+(Section~\ref{sec:results}): computing lead time as the interval between a
+predicted alarm and the actual fault requires identifying the specific
+timestep at which predicted risk crosses an alarm threshold $\tau$, which a
+single window-level prediction cannot provide.
+
+\subsection{Feature Representation}
+
+Raw SCADA sensor channels differ completely in count and naming across
+farms (54--238 average-statistic sensors, depending on farm), which makes
+a model trained on one farm's raw sensors architecturally incompatible
+with another farm's data. To support the cross-farm generalization study
+(Section~\ref{sec:results}), we instead map each farm's raw sensors onto a
+shared set of physically-meaningful, farm-agnostic features, computed
+identically regardless of which farm the data originates from. The
+canonical representation used for all cross-farm comparisons consists of
+ten features: wind speed, blade pitch angle, yaw misalignment, gearbox oil
+temperature rise above ambient, gearbox bearing hotspot over oil
+temperature, generator-to-rotor speed ratio, grid power factor, and three
+grid electrical-imbalance/deviation terms (current imbalance, voltage
+imbalance, frequency deviation). An eleventh feature, power residual
+(actual power minus a wind-speed-conditioned expected power curve), was
+evaluated as a separate ablation but excluded from the canonical
+representation, since fitting its expected-power curve requires
+target-domain data and would violate the zero-shot constraint of the
+cross-farm study.
+
+Each feature is standardized (zero mean, unit variance) using statistics
+fit exclusively on the source farm's training split; the same frozen
+scaler is applied unchanged to validation, test, and any external target
+farm's data, so that no target-domain information influences the
+input representation.
+
+\subsection{Sequence Model}
+
+We use a Gated Recurrent Unit (GRU) network rather than a Long Short-Term
+Memory (LSTM) network or a Transformer. The dataset is modest in size
+relative to typical deep learning corpora (on the order of $10^3$--$10^4$
+training windows depending on farm); a GRU has fewer learned parameters
+than an LSTM of equal hidden size, since it merges the forget and input
+gates into a single update gate and omits the separate cell state,
+reducing overfitting risk on limited data. Transformers, by contrast,
+generally require substantially more training data than recurrent
+architectures to outperform them, since they lack a built-in sequential
+inductive bias; we judged this an unfavorable trade-off at this dataset
+scale.
+
+The final architecture is a 2-layer GRU with hidden size 32 and dropout
+0.3 between layers, followed by a linear projection applied identically at
+every timestep, mapping the hidden state to a single logit:
+\begin{align}
+h_t &= \mathrm{GRU}(x_t, h_{t-1}) \\
+z_t &= W h_t + b \\
+S(t) &= \sigma(z_t)
+\end{align}
+where $\sigma$ denotes the sigmoid function. The model returns raw logits
+$z_t$ during training; $\sigma(z_t)$ is applied separately at inference and
+evaluation time. Architecture depth (2 vs. 3 layers) and a bidirectional
+variant were both evaluated as ablations (Section~\ref{sec:results}) and
+did not improve validation performance sufficiently to justify their added
+complexity or, in the bidirectional case, the loss of real-time causal
+deployability.
+
+\subsection{Loss Function and Class Imbalance}
+
+We use binary cross-entropy computed jointly with the sigmoid
+(\texttt{BCEWithLogitsLoss}) rather than composing a separate sigmoid
+layer with plain binary cross-entropy. The combined formulation avoids
+computing $\log$ of values arbitrarily close to 0 or 1 directly, which is
+numerically unstable in floating-point arithmetic and can produce vanishing
+or exploding gradients as the model becomes confident.
+
+Fault-approaching timesteps are rare relative to normal operation
+(positive rate ranging from approximately 2\% to 6\% depending on farm and
+split). We address this with a positive-class weight, computed as the
+ratio of negative to positive timesteps within the training split only,
+to avoid leaking split-level statistics into the loss function.
+
+\subsection{Masking}
+
+A small fraction of timesteps within an otherwise-accepted window are
+gap-filled (via forward-fill, or back-fill at the start of a window) to
+satisfy an internal coverage requirement. Gap-filled timesteps are marked
+with a binary observation mask and excluded from the loss calculation, by
+multiplying the per-timestep loss by the mask before averaging:
+\begin{equation}
+\mathcal{L} = \frac{\sum_t \mathcal{L}_t \cdot m_t}{\sum_t m_t}
+\end{equation}
+where $m_t \in \{0, 1\}$. The same mask is applied when computing
+evaluation metrics, so reported results reflect performance on real
+observations only. Certain physical features (e.g., the generator-to-rotor
+speed ratio) can produce extreme values even when correctly marked
+invalid; as a defensive stopgap, standardized inputs are additionally
+clipped to $[-10, 10]$ before being passed to the model, since a single
+extreme value elsewhere in a window can otherwise distort the recurrent
+hidden state at other, valid timesteps in the same window.
+
+\subsection{Compute Budget}
+
+Training uses mixed-precision arithmetic and gradient accumulation to
+control memory footprint, and a bounded 24-hour (144-timestep) input
+window rather than a longer history, in line with the project's compute
+constraints. In practice, the combination of a small dataset and a
+compact 2-layer, 32-hidden-unit GRU resulted in peak GPU memory usage and
+training time well within the allotted budget (on the order of seconds
+per epoch; see the deployment note in Section~\ref{sec:results} for
+measured latency and memory figures).
+
+\subsection{Hyperparameter Selection}
+
+We evaluated six configurations, varying learning rate
+($1\times10^{-4}$--$5\times10^{-4}$), dropout (0.3--0.5), feature count (10
+vs.\ 11, i.e.\ with the power-residual ablation), and architecture
+(unidirectional vs.\ bidirectional). The final configuration was selected
+by lowest validation loss, without reference to test-set performance, to
+avoid selecting a configuration that happens to fit the test split rather
+than generalizing. All six configurations showed a consistent pattern:
+strong validation performance (ROC-AUC 0.57--0.67 across configurations)
+alongside markedly weaker held-out test performance (ROC-AUC 0.40--0.48),
+a finding discussed in detail in Section~\ref{sec:discussion}.
+
+\subsection{Reproducibility}
+
+All experiments use a fixed random seed applied to Python's, NumPy's, and
+PyTorch's random number generators. Model and optimizer state are
+checkpointed after every epoch, with the best-validation-loss checkpoint
+retained separately from the most recent one, to tolerate the shared
+compute environment's training window ending mid-run without losing
+progress or requiring a full restart.
+
+\section{Experimental Setup}
+\label{sec:experimental_setup}
+% TODO (owner: Ismayil, per team split). Dataset description (CARE-to-
+% Compare, licence, size per farm), splits, baseline model details
+% (Logistic Regression / HistGradientBoosting), class-imbalance handling.
+
+\section{Results}
+\label{sec:results}
+% TODO (owner: Emin, per team split). Quantitative result table (val+test,
+% all farms), lead-time metric, per-turbine/per-farm breakdown, cost-
+% sensitive metric, calibration analysis, deployment note (latency, model
+% size, memory), Dockerfile reference. Required plots per the brief:
+% reliability diagram, lead-time distribution, per-turbine breakdown chart.
+
+\section{Discussion and Limitations}
+\label{sec:discussion}
+% TODO (owner: Kamal, per team split). Cross-farm generalization findings,
+% distribution-shift analysis (Tasks 16-18), turbine-model shift, label-
+% derivation differences across farms, compute/scoping limitations tying
+% back to Section~\ref{sec:method}.
+
+\section{Conclusion}
+% TODO (owner: not yet assigned as of this commit). Summarize the
+% research question, headline finding, and honest takeaway.
+
+\section*{Tools and Acknowledgements}
+% TODO: each team member should add a brief, honest note on any
+% substantial AI assistance used for their section/code, per the brief's
+% academic-integrity disclosure requirement. Placeholder below for Ziyad's
+% portion; others to add their own.
+Ziyad used AI assistance (Claude) for code review, debugging support, and
+drafting portions of this Method section from decisions made during
+development; all architecture, training, and evaluation decisions were
+made and understood by the author and are defensible independently of
+the drafting assistance.
+
+\begin{thebibliography}{00}
+\bibitem{gueck2024} C. G\"{u}ck and C. Roelofs, ``Wind Turbine SCADA Data
+For Early Fault Detection (v1.0),'' Zenodo, 2024. Available:
+\url{https://doi.org/10.5281/zenodo.10958775}
+% TODO (owner: Ismayil): add remaining citations for the Related Work
+% literature review.
+\end{thebibliography}
+
+\end{document}
