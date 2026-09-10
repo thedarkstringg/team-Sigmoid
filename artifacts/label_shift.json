@@ -1,0 +1,45 @@
+{
+  "C": {
+    "farm": "C",
+    "split": "test",
+    "n_valid_timesteps": 290793,
+    "positive_rate": 0.03648987424043908,
+    "n_fault_events": 4,
+    "fault_event_duration_timesteps": {
+      "mean_timesteps": 2652.75,
+      "median_timesteps": 3043.0,
+      "min_timesteps": 14,
+      "max_timesteps": 4511
+    },
+    "label_methodology": "Operator-provided operating-mode codes plus service reports; same derivation method as Farm B, distinct from Farm A's logbook-based labels (per Gueck & Roelofs 2024)."
+  },
+  "A": {
+    "farm": "A",
+    "split": "test",
+    "n_valid_timesteps": 622715,
+    "positive_rate": 0.05609949977116337,
+    "n_fault_events": 10,
+    "fault_event_duration_timesteps": {
+      "mean_timesteps": 3493.4,
+      "median_timesteps": 3120.0,
+      "min_timesteps": 1442,
+      "max_timesteps": 5136
+    },
+    "label_methodology": "EDP fault logbook: explicit onset timestamp per event, curated by the site operator from SCADA alarms and maintenance records."
+  },
+  "B": {
+    "farm": "B",
+    "split": "test",
+    "n_valid_timesteps": 1214700,
+    "positive_rate": 0.020782086111797153,
+    "n_fault_events": 6,
+    "fault_event_duration_timesteps": {
+      "mean_timesteps": 4207.333333333333,
+      "median_timesteps": 4631.5,
+      "min_timesteps": 2921,
+      "max_timesteps": 5058
+    },
+    "label_methodology": "Operator-provided operating-mode codes plus service reports; onset inferred from mode-code transitions, not a single curated timestamp (per Gueck & Roelofs 2024)."
+  },
+  "positive_rate_ratio_max_to_min": 2.6994161928391756
+}

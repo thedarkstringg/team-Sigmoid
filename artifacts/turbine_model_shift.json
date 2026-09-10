@@ -1,0 +1,29 @@
+{
+  "farm_config": {
+    "A": {
+      "location": "Onshore, Portugal",
+      "n_turbines": 5,
+      "n_raw_sensors": 86
+    },
+    "B": {
+      "location": "Offshore, Germany",
+      "n_turbines": 9,
+      "n_raw_sensors": 257
+    },
+    "C": {
+      "location": "Offshore, Germany",
+      "n_turbines": 22,
+      "n_raw_sensors": 957
+    }
+  },
+  "gearbox_ratio_evidence": {
+    "farm_c_raw_mean": 118.78486633300781,
+    "farm_c_raw_std": 0.9713556170463562,
+    "farm_a_raw_mean": 113.00209045410156,
+    "farm_a_raw_std": 0.43311983346939087,
+    "farm_b_raw_mean": 115.51586151123047,
+    "farm_b_raw_std": 0.1999986618757248,
+    "interpretation": "Each farm's generator/rotor speed ratio clusters tightly around a distinct mean (std < 1.0 in all three farms) - consistent with each farm using a fixed gearbox ratio specific to its turbine model, not a shared design. This matches the sensor mapping's own quality note: 'nominal gear ratios may differ' (configs/physical_sensor_mapping.yaml)."
+  },
+  "note": "Turbine count and raw sensor count differ by roughly an order of magnitude across farms (5/86 for A vs 22/957 for C) - this alone does not prove different turbine models, but combined with the tightly-clustered, farm-specific gearbox ratio below, it supports treating each farm as a genuinely distinct turbine population rather than the same hardware at different sites."
+}
