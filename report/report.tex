@@ -13,22 +13,22 @@
 \title{Early Fault Detection and Risk-Based Maintenance Prioritization for Wind Turbines}
 
 \author{
-\IEEEauthorblockN{Ziyad Muradov}
+\IEEEauthorblockN{Huseynli, Emin}
 \IEEEauthorblockA{\textit{AI Academy} \\
 \textit{National Artificial Intelligence Center}\\
 Baku, Azerbaijan}
 \and
-\IEEEauthorblockN{Emin Huseynli}
+\IEEEauthorblockN{Muradov, Ziyad}
 \IEEEauthorblockA{\textit{AI Academy} \\
 \textit{National Artificial Intelligence Center}\\
 Baku, Azerbaijan}
 \and
-\IEEEauthorblockN{Kamal Soltanaliyev}
+\IEEEauthorblockN{Soltanaliyev, Kamal}
 \IEEEauthorblockA{\textit{AI Academy} \\
 \textit{National Artificial Intelligence Center}\\
 Baku, Azerbaijan}
 \and
-\IEEEauthorblockN{Ismayil Yusifli}
+\IEEEauthorblockN{Yusifli, Ismayil}
 \IEEEauthorblockA{\textit{AI Academy} \\
 \textit{National Artificial Intelligence Center}\\
 Baku, Azerbaijan}
@@ -63,14 +63,126 @@ network, domain generalization, SCADA
 \end{IEEEkeywords}
 
 \section{Introduction}
-% TODO (owner: whole team, or assign one person - not yet claimed as of
-% this commit). Motivate the problem, state the research question, and
-% preview the paper's structure and headline finding.
+Wind turbine downtime is costly, and maintenance triggered only after a
+fault has been formally logged forgoes the opportunity for early,
+lower-cost intervention. SCADA (Supervisory Control and Data Acquisition)
+systems already record dense, high-frequency sensor data from operating
+turbines, raising the question of whether that data alone is sufficient
+to detect an approaching fault before it is logged, with enough lead time
+and confidence to act on.
+ 
+This work investigates that question directly, with two specific research
+aims. First, we ask whether a recurrent neural network trained on
+SCADA sensor windows can produce a calibrated, per-timestep fault-risk
+signal that gives a meaningful lead time ahead of a logged fault, when
+evaluated against an appropriate classical baseline. Second, and
+central to this paper, we ask whether such a model \emph{generalizes}:
+does a model trained on one wind farm's turbines transfer to a different
+farm's turbines, with different hardware, different sensor
+instrumentation, and different fault-labeling procedures, without any
+target-domain retraining?
+ 
+We frame early fault detection as a per-timestep risk regression problem
+over a 24-hour SCADA window, using a Gated Recurrent Unit (GRU) trained
+on a farm-agnostic, physically meaningful feature representation
+(Section~\ref{sec:method}) so that the same trained model can, in
+principle, be evaluated on a farm it never saw during training. We
+evaluate this model against classical baselines and, separately, in a
+strict zero-shot cross-farm setting (Section~\ref{sec:results},
+Section~\ref{sec:discussion}), using the CARE-to-Compare multi-farm SCADA
+dataset~\cite{gueck2024}, which itself provides a published benchmark for
+comparison.
+ 
+Rather than reporting only a favorable in-farm result, this paper places
+equal emphasis on an honest account of where the approach's
+generalization breaks down and why. We find that validation performance
+within a single farm is substantially stronger than held-out test
+performance, a pattern that persists across six independently tested
+model configurations and is not resolved by further tuning; we then show,
+through direct measurement, that this is consistent with real,
+quantifiable distribution shift in the underlying physical features,
+fault-label characteristics, and turbine hardware across farms
+(Section~\ref{sec:discussion}). We further show that this limitation does
+not appear to be specific to the deep learning approach, since classical
+baselines exhibit the same instability. Finally, we connect the model's
+risk output to a practical decision-support layer
+(Section~\ref{sec:method}) that combines predicted risk with degradation
+rate, access cost, and asset criticality into a single maintenance
+priority score, so that the project's contribution extends beyond
+detection accuracy alone to how a risk signal could actually inform
+maintenance scheduling in practice.
+ 
+The remainder of this paper is organized as follows.
+Section~\ref{sec:method} describes the feature representation, model
+architecture, training procedure, and prioritization layer.
+Section~\ref{sec:experimental_setup} describes the dataset, splits, and
+baseline models. Section~\ref{sec:results} reports the quantitative
+results. Section~\ref{sec:discussion} presents the cross-farm
+generalization study and the distribution-shift, label-shift, and
+turbine-configuration analyses that explain it, along with the practical
+implications and limitations of this work.
+ 
 
 \section{Related Work}
-% TODO (owner: Ismayil, per team split). SCADA fault-detection literature
-% review, including comparison against the CARE-to-Compare ~48h benchmark
-% referenced in \cite{gueck2024}.
+Supervisory Control and Data Acquisition (SCADA) systems are widely used
+for wind turbine condition monitoring because they provide dense,
+low-cost sensor data without requiring additional instrumentation.
+Bach-Andersen et al.~\cite{bachandersen2018} review deep learning
+applications to wind turbine condition monitoring and find that
+unsupervised approaches, typically based on learning a normal-behavior
+model and flagging deviations from it, remain more common in the
+literature than supervised classification, despite the promising
+performance supervised methods can achieve. They attribute this
+imbalance to practical difficulties in obtaining labeled fault data:
+faults are rare, and labeling is inconsistent across operators and
+sites. Elshenawy et al.~\cite{elshenawy2024} provide a more recent
+comparative study of data-driven fault-detection methods, underscoring
+that method choice and reported performance vary considerably depending
+on the specific dataset and evaluation protocol used, which motivates
+evaluating any given approach against an explicit, fair baseline rather
+than in isolation.
+ 
+Several recent works specifically target the SCADA fault-detection
+setting used in this paper: sequence models over raw sensor windows.
+CNN-LSTM and attention-based hybrids have been proposed for this task
+using single-farm SCADA data~\cite{cnnlstm2021}, showing that combining
+convolutional feature extraction with recurrent temporal modeling can
+detect early abnormal operation. Closer to the multi-farm setting
+studied here, a recent 1D-CNN framework was developed using a newly
+constructed dataset spanning three distinct wind farms, explicitly
+targeting cross-source generalizability as a design goal rather than an
+afterthought~\cite{cnn1d_multisource}. That work reports that a hybrid
+architecture combining CNN, bidirectional LSTM, and an ensemble
+classifier improves detection on multi-source data relative to simpler
+baselines. This paper differs from that line of work in evaluation
+protocol: rather than training jointly on data pooled across farms, we
+train exclusively on one source farm and evaluate zero-shot transfer to
+farms never seen during training, which more directly probes whether a
+model's learned representation transfers rather than whether pooling
+diverse training data improves in-distribution performance.
+ 
+The cross-farm generalization problem addressed in this paper is also
+related to prior work on turbine-to-turbine transfer under limited
+target-domain data. Generative transfer learning approaches, using
+CycleGAN-based domain mapping to make one turbine's SCADA data resemble
+another's, have been shown to improve fault diagnosis on turbines with
+scarce training data relative to training a normal-behavior model on the
+scarce data directly~\cite{generativetransfer2025}. That approach,
+however, still requires some target-domain data to fit the domain
+mapping. This paper instead evaluates a strictly zero-shot setting, using
+no target-domain data of any kind, which represents a harder and more
+conservative test of generalization, at the cost of not being able to
+exploit target-domain adaptation the way a domain-mapping approach can.
+ 
+Finally, this work uses the CARE-to-Compare benchmark~\cite{gueck2024},
+which provides labeled multi-farm SCADA data specifically curated to
+support cross-farm comparison of fault-detection methods, including a
+published reference lead time against which model-detected alarms can be
+compared. We adopt this benchmark's farms and general evaluation
+philosophy, while contributing an explicit, quantified analysis of
+\emph{why} cross-farm transfer is difficult on this data --- distribution
+shift, label-generation differences, and turbine-hardware
+heterogeneity --- rather than reporting transfer performance alone.
 
 \section{Method}
 \label{sec:method}
@@ -95,7 +207,7 @@ farms (54--238 average-statistic sensors, depending on farm), which makes
 a model trained on one farm's raw sensors architecturally incompatible
 with another farm's data. To support the cross-farm generalization study
 (Section~\ref{sec:results}), we instead map each farm's raw sensors onto a
-shared set of physically-meaningful, farm-agnostic features, computed
+shared set of physically meaningful, farm-agnostic features, computed
 identically regardless of which farm the data originates from. The
 canonical representation used for all cross-farm comparisons consists of
 ten features: wind speed, blade pitch angle, yaw misalignment, gearbox oil
@@ -144,7 +256,14 @@ variant were both evaluated as ablations (Section~\ref{sec:results}) and
 did not improve validation performance sufficiently to justify their added
 complexity or, in the bidirectional case, the loss of real-time causal
 deployability.
-
+For the zero-shot cross-farm experiment, the designated source-domain
+checkpoint was \texttt{checkpoints/farm\_c\_lr5e4/best.pt}. This checkpoint
+uses the same 10-feature physical representation, a 2-layer
+unidirectional GRU with hidden size 32, and dropout 0.4. Its validation
+ROC-AUC was approximately 0.645. This checkpoint was selected as the
+best-validation 10-feature-only configuration for the cross-farm protocol;
+the power-residual feature was excluded because its construction requires
+target-domain calibration.
 \subsection{Loss Function and Class Imbalance}
 
 We use binary cross-entropy computed jointly with the sigmoid
@@ -165,7 +284,7 @@ to avoid leaking split-level statistics into the loss function.
 A small fraction of timesteps within an otherwise-accepted window are
 gap-filled (via forward-fill, or back-fill at the start of a window) to
 satisfy an internal coverage requirement. Gap-filled timesteps are marked
-with a binary observation mask and excluded from the loss calculation, by
+with a binary observation mask and excluded from the loss calculation by
 multiplying the per-timestep loss by the mask before averaging:
 \begin{equation}
 \mathcal{L} = \frac{\sum_t \mathcal{L}_t \cdot m_t}{\sum_t m_t}
@@ -211,35 +330,646 @@ checkpointed after every epoch, with the best-validation-loss checkpoint
 retained separately from the most recent one, to tolerate the shared
 compute environment's training window ending mid-run without losing
 progress or requiring a full restart.
+\subsection{Risk-Based Maintenance Prioritization}
 
+Early fault detection alone does not determine which asset should be
+inspected first. To convert model outputs into an operational maintenance
+ranking, we implement a risk-based prioritization layer that combines four
+factors: predicted fault risk, degradation rate, access burden, and asset
+criticality. The resulting score is defined as
+
+\begin{equation}
+P_i =
+w_1 R_i +
+w_2 D_i -
+w_3 A_i +
+w_4 C_i ,
+\label{eq:priority_score}
+\end{equation}
+
+where $P_i$ is the priority score for asset $i$, $R_i$ is the aggregated
+fault-risk estimate, $D_i$ is the estimated degradation rate, $A_i$ is the
+relative access-cost index, and $C_i$ is the asset criticality score.
+The coefficients $w_1,\ldots,w_4$ control the relative importance of the
+four factors. Unless otherwise specified, the implementation uses unit
+weights, so that the score remains directly interpretable as the sum of the
+four normalized decision factors.
+
+The fault-risk component is obtained from the model's timestep-level
+predictions using a trailing temporal aggregation over the configured
+decision horizon. This reduces sensitivity to an isolated high prediction
+while retaining the most recent risk information. The degradation component
+is estimated from the temporal trend of the aggregated predictions, allowing
+an asset with increasing predicted risk to receive a higher maintenance
+priority even when its instantaneous risk is not yet the largest in the
+fleet.
+
+Access cost is represented as a relative access-burden index rather than a
+monetary estimate. The implementation distinguishes basic access burden,
+transport and logistics components, and an illustrative offshore premium.
+The default offshore multiplier is $1.5$; this value is explicitly treated
+as a project-level illustrative parameter rather than a measured
+industry-wide cost ratio. Higher access burden reduces the resulting
+priority score through the negative access-cost term in
+Equation~\ref{eq:priority_score}.
+
+Criticality represents the operational importance of the asset and allows
+the prioritization layer to distinguish between otherwise similar risk
+profiles. Thus, two turbines with comparable predicted fault risk can receive
+different maintenance priorities when their degradation trajectories,
+access requirements, or operational importance differ.
+
+The prioritization implementation is exposed both as a reusable Python API
+and as a command-line interface. The API accepts the four decision factors
+and optional weights, while the command-line interface provides the same
+calculation from explicit numeric inputs. Unit and integration tests verify
+the scoring formula, custom weights, deterministic behavior, vectorized
+inputs, ranking behavior, and the expected monotonic relationships: higher
+fault risk, degradation rate, or criticality increases priority, whereas
+higher access burden decreases it. The prioritization layer is therefore
+implemented as a decision-support component rather than as an additional
+learned model.
+\subsection{Prioritization Implementation and Verification}
+
+The prioritization layer is implemented as a modular component in
+\texttt{src/prioritization/}. The implementation separates prediction
+aggregation, degradation-rate estimation, access-cost calculation,
+criticality scoring, and final priority computation. This separation allows
+each decision factor to be tested independently and also permits the complete
+pipeline to be evaluated from raw timestep-level predictions.
+
+The implementation provides both a programmatic interface and a standalone
+command-line entry point. The command-line interface accepts fault risk,
+degradation rate, access cost, and criticality as explicit inputs, with
+optional overrides for the four weights. The default configuration uses
+$w_1=w_2=w_3=w_4=1$. The resulting score is deterministic for fixed inputs
+and weights.
+
+Verification includes unit tests for the individual prioritization
+components and integration tests covering the complete prediction-to-score
+pipeline. The tests verify numerical scoring, custom weighting, invalid-input
+handling, deterministic behavior, ranking consistency, temporal aggregation,
+and the expected monotonic effect of each decision factor. In particular,
+increasing access burden lowers priority while increasing fault risk,
+degradation rate, or criticality raises it. This verification provides a
+software-level check that the implemented prioritization behavior matches
+the mathematical formulation in Equation~\ref{eq:priority_score}.
 \section{Experimental Setup}
 \label{sec:experimental_setup}
-% TODO (owner: Ismayil, per team split). Dataset description (CARE-to-
-% Compare, licence, size per farm), splits, baseline model details
-% (Logistic Regression / HistGradientBoosting), class-imbalance handling.
-
+\subsection{Dataset}
+ 
+We use the CARE-to-Compare dataset~\cite{gueck2024}, a multi-farm SCADA
+dataset published by Fraunhofer IWES and distributed via Zenodo under a
+CC BY-SA 4.0 licence (DOI: 10.5281/zenodo.10958775). The dataset provides
+10-minute-resolution SCADA readings across 36 wind turbines spanning
+three farms: Farm A (onshore, Portugal, 5 turbines, 86 raw sensor
+channels), Farm B (offshore, Germany, 9 turbines, 257 raw sensor
+channels), and Farm C (offshore, Germany, 22 turbines, 957 raw sensor
+channels). Across the three farms, 95 total labelled event datasets are
+provided (44 anomaly events, 51 normal-operation controls). Farm A's
+fault labels derive from an operator-curated fault logbook with explicit
+onset timestamps; Farms B and C's labels derive from operator-provided
+operating-mode codes and service reports, with onset inferred from
+mode-code transitions.
+ 
+Given Farm C's substantially larger turbine count relative to Farm A and
+B (22 vs.\ 5 and 9, respectively), Farm C was selected as the primary
+training (source) domain for this project, with Farms A and B reserved
+as external, never-trained-on target domains for the cross-farm
+generalization study (Section~\ref{sec:discussion}).
+ 
+\subsection{Data Splits}
+ 
+Train, validation, and test splits are asset-disjoint: every turbine is
+assigned wholly to one split, so no turbine's data appears in more than
+one split. This is a stricter requirement than a random row-level split,
+since it prevents a model from partially succeeding on validation or test
+data by learning turbine-specific characteristics rather than
+generalizable fault signatures. The split assignment is fixed once, before any model training, and reused identically across the baseline models
+and the GRU, so that all reported comparisons use the same held-out data.
+ 
+\subsection{Baseline Models}
+ 
+Per the project's cross-track requirement for a fair baseline, we train
+two classical models on Farm C: Logistic Regression and
+HistGradientBoosting. Both are trained on the same underlying 24-hour
+windows used by the GRU, aggregated into a fixed-length feature vector
+per window (mean, standard deviation, minimum, maximum, last value, and
+change, computed per feature over the window), since neither classical
+model natively supports sequential input. Class imbalance --- fault
+timesteps are rare relative to normal operation --- is addressed via
+balanced class and sample weighting during training, mirroring the
+positive-class weighting approach used for the GRU
+(Section~\ref{sec:method}), so that both the baseline and the deep
+learning model are trained under a comparable imbalance-handling
+strategy.
+ 
+\subsection{Data Quality Handling}
+ 
+Both Farm B and Farm C are documented to encode some missing sensor
+readings as literal zero values rather than as null/NaN; this is not
+uniformly treated as missing, since zero is a physically valid reading
+for several channels (e.g., power output during a stoppage). Raw
+minimum/maximum/standard-deviation statistic channels for Farms B and C
+are known to be substantially less reliable than average-statistic
+channels for a subset of sensors; the physical feature representation
+used throughout this project (Section~\ref{sec:method}) is built
+exclusively from average-statistic channels for this reason. During
+development, a unit-mismatch bug was found and corrected in one derived
+feature's validity threshold (\texttt{grid\_power\_factor}), which had
+been calibrated for real kVA units while the underlying Farm C data was
+on a per-unit normalized scale; correcting this threshold increased the
+feature's valid-timestep fraction from 4.9\% to 80.7\%.
 \section{Results}
 \label{sec:results}
-% TODO (owner: Emin, per team split). Quantitative result table (val+test,
-% all farms), lead-time metric, per-turbine/per-farm breakdown, cost-
-% sensitive metric, calibration analysis, deployment note (latency, model
-% size, memory), Dockerfile reference. Required plots per the brief:
-% reliability diagram, lead-time distribution, per-turbine breakdown chart.
-
+Table~\ref{tab:baseline} reports the classical baseline models trained on
+Farm C by the data-pipeline team member, following the same
+train/validation/test splits used throughout this paper.
+ 
+\begin{table}[t]
+\caption{Farm C baseline results (classical models)}
+\label{tab:baseline}
+\centering
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Model / Split & ROC-AUC & PR-AUC & F1 & Recall \\
+\midrule
+LogReg, val   & 0.617 & 0.050 & 0.105 & 0.971 \\
+LogReg, test  & 0.499 & 0.035 & 0.071 & 1.000 \\
+HistGB, val   & 0.420 & 0.034 & 0.078 & 0.994 \\
+HistGB, test  & 0.659 & 0.080 & 0.071 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 
+Notably, HistGradientBoosting underperforms Logistic Regression on
+validation but outperforms it on test --- an unstable, inverted pattern
+across splits for the same model family. This instability recurs in the
+GRU results below and is examined directly in
+Section~\ref{sec:discussion}.
+ 
+\subsection{GRU Hyperparameter Comparison}
+ 
+Table~\ref{tab:gru_configs} reports the six GRU configurations evaluated
+on Farm C, selected as described in
+Section~\ref{sec:method}. All configurations were evaluated on the
+identical fixed train/validation/test split.
+ 
+\begin{table}[t]
+\caption{GRU configurations evaluated on Farm C (10 features unless noted)}
+\label{tab:gru_configs}
+\centering
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Configuration & Val ROC-AUC & Test ROC-AUC \\
+\midrule
+Default LR                        & 0.571 & 0.447 \\
+LR $=10^{-4}$                     & 0.631 & 0.482 \\
+LR $=5\times10^{-4}$, dropout 0.4 & 0.645 & 0.422 \\
+LR $=10^{-4}$, dropout 0.5        & 0.605 & 0.446 \\
++ Power residual (11 features)    & 0.667 & 0.395 \\
++ Bidirectional (11 features)     & 0.624 & 0.461 \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 
+Every configuration shows the same qualitative pattern: validation
+ROC-AUC in the range 0.57--0.67, alongside test ROC-AUC in the range
+0.40--0.48, a gap that persists regardless of learning rate, dropout,
+feature count, or architecture (unidirectional vs.\ bidirectional). The
+model with the best validation loss (LR $=5\times10^{-4}$, dropout 0.4,
+10 features, referred to as the canonical checkpoint in
+Section~\ref{sec:method}) was selected as the primary model for the
+cross-farm study in Section~\ref{sec:discussion}, per the selection
+protocol described in Section~\ref{sec:method}.
+ 
+\subsection{Deployment Note}
+ 
+Table~\ref{tab:deployment} reports measured deployment characteristics for
+the canonical checkpoint. GPU latency and training memory are not
+reported here since this benchmark was run on a machine without CUDA
+available; the reported latency figures are CPU-only.
+ 
+\begin{table}[t]
+\caption{Deployment characteristics (canonical checkpoint, CPU)}
+\label{tab:deployment}
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+Metric & Value \\
+\midrule
+Checkpoint size & 133.5 KB \\
+Total parameters & 10{,}593 \\
+Median latency, batch size 1 & 94.3 ms \\
+Median latency, batch size 64 (per sequence) & 10.6 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 
+The model is compact by design (Section~\ref{sec:method}): 10{,}593
+trainable parameters and a 133.5~KB checkpoint. Per-sequence latency drops
+substantially under batching (94.3~ms at batch size 1 versus 10.6~ms per
+sequence at batch size 64), reflecting fixed per-call overhead that
+amortizes across a larger batch; a fleet-scale deployment scoring many
+turbines together would benefit from this batching effect, whereas a
+single-turbine, real-time inference call incurs the higher per-call
+latency. Both figures are well within the requirements of a 10-minute
+SCADA reporting interval, indicating the model's inference cost is not a
+practical deployment constraint, even without GPU acceleration.
+ 
+\subsection{Domain-Specific Evaluation}
+ 
+\subsubsection{Lead Time and False Alarm Rate}
+ 
+Using the threshold that maximizes F1 on the test split ($\tau = 0.355$,
+selected by the same validation-F1 method used for the classical
+baselines), the model detects all 4 fault events in the Farm C test
+split, with a mean lead time of 357.5 hours and a median of 395.3 hours
+ahead of the logged fault --- substantially longer than the
+CARE-to-Compare benchmark's reference lead time.
+ 
+This result must be interpreted alongside the false-alarm rate at the
+same threshold: the model alarms on 100\% of normal (non-fault) test
+windows. A model that alarms continuously will trivially achieve a long
+apparent lead time and perfect detection, since it never stops
+signaling risk; the long lead time reported above is therefore an
+artifact of near-constant alarming at this operating point, not evidence
+of genuine early, selective fault discrimination. This is consistent
+with the model's weak ROC-AUC on the same test split
+(Section~\ref{sec:results}, Table~\ref{tab:gru_configs}) and should not
+be read as a positive early-warning result in isolation.
+ 
+\subsubsection{Cost-Sensitive Evaluation}
+ 
+Using a 10:1 cost ratio (a missed fault costs ten times an unnecessary
+dispatch, following the same ratio used for Kamal's AccessCost
+component in Section~\ref{sec:method}), the cost-optimal threshold on
+the test split is $\tau = 0.54$, at which the model produces zero false
+positives but only 12 true positives out of 10,611 positive timesteps.
+At this operating point, total cost is reduced by 62.2\% relative to an
+always-alarm policy, but only 0.11\% relative to a reactive-only
+policy (i.e., taking no model-driven action at all). Taken together with
+the lead-time result above, the model's two candidate operating
+points --- the F1-maximizing threshold (alarm almost always) and the
+cost-optimal threshold (alarm almost never) --- both collapse toward a
+degenerate policy rather than offering a genuinely useful middle ground,
+reinforcing this paper's central finding that the model does not
+discriminate reliably on held-out Farm C data.
+ 
+\subsubsection{Calibration}
+ 
+The model is poorly calibrated on the test split: Brier score 0.238 and
+Expected Calibration Error (ECE) 0.447, against a best possible ECE of
+0. Predicted probabilities are compressed into a narrow band
+(populated only in the 0.3--0.6 range across the ten reliability bins)
+and are substantially overconfident relative to observed outcome
+frequency; for example, the 0.5--0.6 predicted-probability bin has a
+mean predicted value of 0.511 against an observed positive rate of only
+0.020. This directly affects the prioritization layer
+(Section~\ref{sec:method}), whose fault-risk input assumes the model's
+probability output is a meaningful confidence estimate: at this
+calibration quality, the prioritization score's absolute magnitude
+should not be trusted, though relative ranking across turbines may
+still carry some signal.
+ 
+\subsubsection{Per-Turbine Breakdown}
+ 
+Table~\ref{tab:per_asset} reports test-split classification metrics
+broken down by turbine. Consistent with the earlier Farm A finding
+(Section~\ref{sec:discussion}) and the known sensor-quality issue on
+assets 16 and 23 (Section~\ref{sec:discussion}), performance varies
+substantially by turbine even within the single Farm C test split.
+ 
+\begin{table}[t]
+\caption{Farm C test split, per-asset breakdown}
+\label{tab:per_asset}
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Asset & N & Precision & F1 \\
+\midrule
+16 (sensor issue) & 104{,}636 & 0.038 & 0.074 \\
+23 (sensor issue) & 122{,}704 & 0.017 & 0.033 \\
+56 (clean)        & 63{,}453  & 0.071 & 0.133 \\
+\bottomrule
+\end{tabular}
+\end{table}
+ 
+Note: a discrepancy was found between this evaluation pipeline's pooled
+ROC-AUC (0.336, computed via the prediction-table export and
+\texttt{metrics.py}) and the value reported directly by the training
+pipeline's own evaluator for the same checkpoint and split (0.422,
+Table~\ref{tab:gru_configs}). Both use the same 290{,}793 valid
+(mask-filtered) test timesteps; the source of the discrepancy was not
+resolved before submission and is disclosed here as an open
+reproducibility question rather than silently reconciled by selecting
+whichever value is more favorable.
 \section{Discussion and Limitations}
 \label{sec:discussion}
-% TODO (owner: Kamal, per team split). Cross-farm generalization findings,
-% distribution-shift analysis (Tasks 16-18), turbine-model shift, label-
-% derivation differences across farms, compute/scoping limitations tying
-% back to Section~\ref{sec:method}.
+
+The results indicate that the main challenge in transferring the fault-detection
+model across farms is not only the difference in fault prevalence, but also
+substantial differences in the physical feature distributions presented to the
+model. The cross-farm analysis therefore provides an important qualification
+to the in-farm results: a model trained on one wind-turbine population cannot
+be assumed to generalize to another farm without validating the compatibility
+of both the sensor distributions and the fault-labeling process.
+
+\subsection{Cross-Farm Generalization}
+
+The cross-farm study evaluates direct transfer from Farm C to Farms A and B
+in a zero-shot setting. Farm C is treated as the source domain, while Farms A
+and B are unseen target domains. The designated source-domain checkpoint is
+\texttt{checkpoints/farm\_c\_lr5e4/best.pt}, a 10-feature, 2-layer
+unidirectional GRU with hidden size 32 and dropout 0.4. The checkpoint was
+selected using the Farm C validation split, with an approximate validation
+ROC-AUC of 0.645.
+
+The cross-farm protocol deliberately uses only the ten canonical physical
+features. The power-residual feature is excluded because constructing it
+requires fitting an expected-power relationship using target-domain data,
+which would violate the zero-shot evaluation constraint. The standardization
+parameters are fitted exclusively on the Farm C training split and then
+reused unchanged for Farm C validation/test data and for the external Farm A
+and Farm B test data. No target-domain retraining, scaler fitting, or
+threshold tuning is performed.
+
+This setup measures domain generalization rather than adapted target-domain
+performance. Consequently, differences between source and target
+performance must be interpreted together with the feature-distribution,
+labeling, and turbine-configuration analyses below. In particular, the
+target farms do not simply represent independent samples from an identical
+sensor population: several physically meaningful variables occupy
+substantially different ranges after application of the frozen source
+scaler.
+
+\subsection{Distribution Shift}
+
+To characterize input-domain shift, we compared the ten canonical physical
+features using the Farm C training population as the source reference and the
+test splits of Farms A and B as zero-shot target domains. Because the Farm C
+scaler is frozen, we use a project-defined compression factor as the primary
+model-input scale diagnostic. Since the source-standardized features have
+unit variance by construction, the compression factor is equal to the
+reciprocal of the target standard deviation after application of the frozen
+source scaler. Values above one therefore indicate stronger compression of
+the target feature relative to the source scale, whereas values below one
+indicate a broader target spread. The statistic is intended to describe the
+scale change actually presented to the model and is not treated as a complete
+statistical test of distributional equality.
+
+The strongest shifts occur in the gearbox-related variables. The
+\texttt{gearbox\_bearing\_hotspot\_over\_oil\_C} feature has compression factors
+of $33.73\times$ for Farm A and $66.31\times$ for Farm B. Similarly,
+\texttt{gearbox\_oil\_rise\_C} has compression factors of $16.12\times$ and
+$17.95\times$ for Farms A and B, respectively. These values indicate that the
+target distributions occupy substantially narrower regions than the variance
+observed in the Farm C reference population after the same scaler is applied.
+
+Other features show substantial but more heterogeneous shifts. For example,
+\texttt{grid\_frequency\_deviation\_Hz} has a compression factor of
+$6.98\times$ in Farm A but only $1.51\times$ in Farm B, while
+\texttt{generator\_rotor\_speed\_ratio} has compression factors of
+$2.24\times$ and $4.86\times$, respectively. In contrast,
+\texttt{yaw\_misalignment\_deg} has compression factors below one in both
+target farms ($0.29\times$ for A and $0.48\times$ for B), demonstrating that
+the direction and magnitude of distribution shift are feature-dependent rather
+than uniformly larger in one target farm.
+
+The compression factor should not be interpreted in isolation, because it
+captures spread rather than location shift. For example, the
+\texttt{yaw\_misalignment\_deg} feature has a compression factor below one,
+yet its target means are substantially displaced from the Farm C reference
+population. Likewise, the generator-to-rotor speed ratio exhibits both a
+large change in mean and a substantial change in spread. These cases
+illustrate why the analysis considers both scaled distributional summaries
+and the compression factor rather than reducing domain shift to a single
+scalar statistic.
+
+The raw statistics further illustrate these differences. For example, the
+mean generator-to-rotor speed ratio is $118.785$ in Farm C, compared with
+$113.002$ in Farm A and $115.516$ in Farm B. Likewise, the mean gearbox oil
+temperature rise is $44.689$ in Farm C, compared with $29.697$ in Farm A and
+$42.271$ in Farm B. The particularly large compression factors for the two
+gearbox-related features are also associated with unusually large source-domain
+variance in Farm C, which suggests that data-quality characteristics of the
+source population may contribute to the observed shift. Consequently, these
+statistics should be interpreted as evidence of domain mismatch rather than as
+evidence that the underlying physical relationships themselves are incorrect.
+
+Figure~\ref{fig:distribution_shift_compression} summarizes the compression
+factors across the ten canonical features, while
+Figure~\ref{fig:distribution_shift_features} provides the corresponding
+feature-distribution comparison.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{distribution_shift_compression.png}
+    \caption{Compression factors for the ten canonical physical features when
+    Farm A and Farm B test data are transformed using the frozen Farm C
+    training scaler. Larger values indicate stronger compression relative to
+    the source-domain variance.}
+    \label{fig:distribution_shift_compression}
+\end{figure}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{distribution_shift_features.png}
+    \caption{Comparison of the physical feature distributions across the Farm C
+    source population and the Farm A and Farm B target populations.}
+    \label{fig:distribution_shift_features}
+\end{figure}
+
+\subsection{Label Shift}
+
+Input distribution shift is accompanied by differences in fault-label
+prevalence across the three farms. On the respective test splits, Farm A has a
+positive rate of $5.61\%$, Farm C has $3.65\%$, and Farm B has $2.08\%$.
+Thus, the highest positive rate is approximately $2.70\times$ the lowest.
+The corresponding numbers of fault events are 10 for Farm A, 4 for Farm C,
+and 6 for Farm B.
+
+The event durations also differ. The median fault-event duration is
+3,120 timesteps for Farm A, 3,043 timesteps for Farm C, and 4,631.5 timesteps
+for Farm B. These differences matter when interpreting per-timestep metrics,
+because the number and duration of positive intervals affect the effective
+class balance and the temporal structure of the prediction problem.
+
+Importantly, the label-generation procedures are not identical across all
+farms. Farm A uses an EDP fault logbook containing explicit onset timestamps
+curated by the site operator from SCADA alarms and maintenance records. Farms B
+and C instead use operator-provided operating-mode codes and service reports,
+with fault onset inferred from mode-code transitions. Therefore, differences
+in positive rates and event boundaries cannot automatically be interpreted as
+differences in the underlying physical fault process. 
+For this reason, we use the term ``label shift'' descriptively for the
+observed differences in timestep-level label prevalence and event duration,
+rather than claiming that the underlying fault-generating distribution has
+been shown to change causally between farms. Part of the observed
+label shift may arise from differences in how faults are recorded and
+converted into timestep-level labels.
+
+\subsection{Turbine and Sensor Configuration Heterogeneity}
+
+The farms also differ substantially in their physical scale and sensor
+configuration. Farm A is an onshore farm in Portugal with 5 turbines and
+86 raw sensors. Farm B is an offshore farm in Germany with 9 turbines and
+257 raw sensors, whereas Farm C is an offshore farm in Germany with 22
+turbines and 957 raw sensors. The large differences in turbine and raw-sensor
+counts indicate that the source and target datasets represent substantially
+different monitoring configurations.
+
+The generator-to-rotor speed ratio provides additional evidence of
+farm-specific hardware characteristics. Its mean is $118.785$ in Farm C,
+$113.002$ in Farm A, and $115.516$ in Farm B, while the corresponding standard
+deviations are below one in all three farms. The tightly clustered but
+distinct means are consistent with farm-specific gearbox ratios and support
+the interpretation that the farms should not be treated as identical turbine
+populations. This is also consistent with the sensor-mapping documentation,
+which notes that nominal gear ratios may differ across datasets.
+
+However, the available metadata does not establish a complete one-to-one
+mapping of turbine manufacturer, model, and configuration across all farms.
+Therefore, the analysis does not claim that every turbine model is uniquely
+identified. Instead, the evidence supports the more conservative conclusion
+that turbine populations and monitoring configurations differ materially
+between the source and target domains.
+
+\subsection{Practical Implications}
+
+These findings have direct implications for deployment of SCADA-based early
+fault detection. A model that performs well on a source farm may encounter
+substantially different feature distributions, fault prevalences, event
+definitions, and turbine configurations when deployed at a new site. In
+particular, applying the source scaler without adaptation can produce target
+features whose variance and mean differ markedly from those seen during
+training.
+
+Consequently, cross-farm deployment should include a domain-validation stage
+before relying on model scores for maintenance decisions. At minimum, the
+physical feature distributions and label-generation process should be audited
+for the target farm. Where sufficient target-domain data are available,
+calibration or controlled adaptation should be evaluated rather than assuming
+that the source model is directly transferable.
+
+This observation also motivates the risk-based prioritization layer developed
+in this work. A fault-risk score should not be interpreted independently of
+degradation rate, access burden, and asset criticality. The implemented
+prioritization score combines these factors as
+
+\begin{equation}
+P_i =
+w_1 R_i +
+w_2 D_i -
+w_3 A_i +
+w_4 C_i ,
+\end{equation}
+
+where increasing predicted risk, degradation, or criticality raises priority,
+while increasing access burden reduces it. This formulation is intentionally
+a decision-support layer rather than a learned replacement for operational
+judgement. In particular, the access-cost component is a relative index and
+the default offshore premium is illustrative; it should be replaced by
+site-specific operational cost information before deployment. Thus, the
+prioritization layer demonstrates how model outputs can be connected to
+maintenance decision logic without claiming that a single risk score is
+sufficient for real-world scheduling.
+
+\subsection{Limitations}
+
+Several limitations constrain the conclusions of this study. First, the
+cross-farm evaluation is intentionally zero-shot and therefore does not test
+whether a small amount of target-domain adaptation could recover performance.
+The results should consequently be interpreted as a measure of direct
+transferability rather than the best achievable performance on Farms A and B.
+
+Second, the distribution-shift analysis uses compression factor as its primary
+statistic. This choice is motivated by the frozen-scaler deployment setting:
+the statistic measures changes in the feature spread actually presented to the
+model and avoids allowing unusually large source-domain variance to mask a
+target-domain shift. It should therefore not be interpreted as a complete
+statistical test of distributional equality.
+
+Third, several of the largest shifts involve gearbox-related variables for
+which the Farm C source population has unusually large raw variance. This
+raises the possibility that data-quality artifacts contribute to the apparent
+domain mismatch. The analysis identifies this issue but does not establish its
+cause.
+
+Fourth, the farms differ in their label-generation procedures. Farm A uses
+logbook-based fault onset information, whereas Farms B and C derive labels from
+operating-mode codes and service reports. As a result, cross-farm differences
+in measured fault prevalence and event duration may reflect both physical
+failure processes and differences in annotation methodology.
+
+Finally, the available turbine metadata is not sufficiently detailed to
+establish complete manufacturer/model correspondence across all turbines.
+The turbine-count, sensor-count, and gearbox-ratio evidence demonstrates
+heterogeneity but does not by itself identify the causal source of the model's
+cross-farm degradation. Larger multi-farm datasets with harmonized fault
+definitions, richer turbine metadata, and prospective validation would be
+needed to separate these effects and determine how much performance can be
+recovered through calibration or domain adaptation.
+
+The maintenance prioritization layer also has important scope limitations.
+Its access-cost component is a relative burden index rather than a calibrated
+monetary maintenance cost, and the default offshore premium is an
+illustrative project parameter. Similarly, asset criticality is treated as
+an externally supplied decision factor rather than learned from historical
+maintenance outcomes. The prioritization results should therefore be viewed
+as a transparent decision-support mechanism whose parameters require
+site-specific calibration before operational use.
 
 \section{Conclusion}
-% TODO (owner: not yet assigned as of this commit). Summarize the
-% research question, headline finding, and honest takeaway.
+This work asked whether a recurrent neural network trained on multi-farm
+SCADA data can detect an approaching wind turbine fault early enough to
+support risk-based maintenance prioritization, and whether such a model
+generalizes to turbines and farms it was not trained on. We framed the
+task as per-timestep risk regression using a GRU over a ten-feature,
+farm-agnostic physical representation, selected the final model by
+validation performance across six tested configurations, and evaluated it
+against classical baselines both within a single farm and, more
+critically, in a strict zero-shot transfer setting to two unseen farms.
+ 
+The honest headline finding is that generalization, not raw detection
+accuracy, is the binding constraint on this approach. Validation
+performance was consistently reasonable, but held-out test and cross-farm
+performance were consistently weak, a pattern that persisted regardless
+of architecture depth, learning rate, dropout, or feature-set changes,
+and that was not unique to the GRU: classical baselines trained on the
+same data showed the same instability. Rather than treating this as an
+unexplained failure, we traced it to measurable causes: real,
+farm-specific differences in physical sensor distributions (compression
+factors as high as $66\times$ under a frozen source scaler), in
+fault-label prevalence and derivation methodology (a $2.70\times$ spread
+in positive rate across farms, with different labeling procedures between
+farms), and in turbine hardware itself (distinct, tightly-clustered
+gearbox ratios per farm). Taken together, these findings support a
+specific, actionable conclusion: a fault-detection model trained on one
+wind farm should not be assumed transferable to another without first
+auditing the compatibility of sensor distributions, label definitions,
+and turbine configuration between source and target sites.
+ 
+This project also demonstrates that a model's fault-risk output is not,
+by itself, a complete maintenance decision. The risk-based prioritization
+layer developed in this work (Section~\ref{sec:method}) shows how
+predicted risk can be combined with degradation trend, access cost, and
+asset criticality into a single, interpretable priority score, providing
+a decision-support mechanism rather than an additional black-box model.
+ 
+Future work could evaluate whether a small amount of target-domain
+calibration recovers cross-farm performance, whether the distribution
+shift observed in gearbox-related features reflects genuine hardware
+differences versus source-domain data-quality artifacts, and whether a
+larger, harmonized multi-farm dataset with richer turbine metadata could
+support a more direct test of what specifically limits transfer. More
+broadly, this work suggests that reporting only in-domain performance for
+SCADA-based fault detection risks overstating real-world deployability,
+and that cross-domain evaluation should be treated as a standard, not
+optional, part of validating such systems before deployment.
 
 \section*{Tools and Acknowledgements}
-% TODO: each team member should add a brief, honest note on any
-Claude was used to independently verify that src/ implementation and tests/ pass. The code in src/ itself was written independently (not generated by AI). Per the course’s oral verification policy (Week 7), we are responsible for being able to
+Claude was used to verify that src/ implementation and tests/ pass independently. The code in src/ itself was written independently (not generated by AI). Per the course’s oral verification policy, we are responsible for being able to
 explain and reproduce every derivation and code reference in
 this report without AI assistance.
 
@@ -248,8 +978,11 @@ this report without AI assistance.
 \bibitem{gueck2024} C. G\"{u}ck and C. Roelofs, ``Wind Turbine SCADA Data
 For Early Fault Detection (v1.0),'' Zenodo, 2024. Available:
 \url{https://doi.org/10.5281/zenodo.10958775}
-% TODO (owner: Ismayil): add remaining citations for the Related Work
-% literature review.
+\bibitem{bachandersen2018} M. Bach-Andersen, B. R{\o}mer-Odgaard, and O. Winther, ``Deep learning for fault detection in wind turbines,'' Renewable and Sustainable Energy Reviews, vol. 99, pp. 210--223, 2019.
+\bibitem{elshenawy2024} L. M. Elshenawy, A. A. Gafar, H. A. Awad, and M. S. AbouOmar, ``Fault detection of wind turbine system based on data-driven methods: a comparative study,'' Neural Computing and Applications, vol. 36, no. 17, pp. 10279--10296, 2024.
+\bibitem{cnnlstm2021} L. Xiang, P. Wang, X. Yang, A. Hu, and H. Su, ``Fault detection of wind turbine based on SCADA data analysis using CNN and LSTM with attention mechanism,'' Measurement, vol. 175, art. 109094, 2021.
+\bibitem{cnn1d_multisource} A. R. Abas et al., ``Early prediction of wind turbine anomalies using 1D-CNN and temporal feature engineering on multi-source SCADA data,'' Scientific Reports, vol. 16, art. 9667, 2026.
+\bibitem{generativetransfer2025} ``Fault detection in new wind turbines with limited data by generative transfer learning,'' arXiv:2504.17709, 2025.
 \end{thebibliography}
 
 \end{document}
